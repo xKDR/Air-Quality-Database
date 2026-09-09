@@ -1,0 +1,94 @@
+# Server-side stack for the India Air Quality API (see docs/DEPLOY_API.md).
+#
+#   docker compose up -d mirror api cloudflared          # serve queries from a local mirror of the R2 files
+#   docker compose --profile exporter run --rm exporter python -m exporter.export_parquet --full --upload
+#
+# Configuration comes from .env (copy .env.example).
+services:
+
+  # Keeps a local copy of the published Parquet tree (~0.5 GB) in sync with R2 every 10 minutes.
+  mirror:
+    image: rclone/rclone:latest
+    container_name: aqi-mirror
+    environment:
+      - RCLONE_CONFIG_R2_TYPE=s3
+      - RCLONE_CONFIG_R2_PROVIDER=Cloudflare
+      - RCLONE_CONFIG_R2_ACCESS_KEY_ID=${CLOUDFLARE_ACCESS_ID}
+      - RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=${CLOUDFLARE_SECRET}
+      - RCLONE_CONFIG_R2_ENDPOINT=${CLOUDFLARE_S3}
+      - R2_BUCKET=${R2_BUCKET:-aqi-data}
+      - MIRROR_INTERVAL_SECONDS=${MIRROR_INTERVAL_SECONDS:-600}
+    volumes:
+      - parquet-data:/data/parquet
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          rclone sync "r2:$${R2_BUCKET}/v1" /data/parquet/v1 --fast-list --checksum --transfers 16 --stats-one-line --stats 0 || echo "sync failed; will retry"
+          sleep "$${MIRROR_INTERVAL_SECONDS}"
+        done
+    restart: unless-stopped
+
+  # Query service (FastAPI + DuckDB) over the mirrored Parquet tree. Not published on any host port:
+  # only reachable through the Cloudflare Tunnel, and only accepts requests carrying GATEWAY_SECRET.
+  # Set PARQUET_DIR=s3://aqi-data to read R2 directly instead of the mirror (slower for long ranges).
+  api:
+    build: .
+    container_name: aqi-api
+    depends_on:
+      - mirror
+    environment:
+      - PARQUET_DIR=${PARQUET_DIR:-/data/parquet}
+      - CLOUDFLARE_S3=${CLOUDFLARE_S3}
+      - CLOUDFLARE_ACCESS_ID=${CLOUDFLARE_ACCESS_ID}
+      - CLOUDFLARE_SECRET=${CLOUDFLARE_SECRET}
+      - GATEWAY_SECRET=${GATEWAY_SECRET}
+      - API_DUCKDB_THREADS=${API_DUCKDB_THREADS:-4}
+      - API_DUCKDB_MEMORY_LIMIT=${API_DUCKDB_MEMORY_LIMIT:-2GB}
+      - API_QUERY_TIMEOUT_SECONDS=30
+    volumes:
+      - parquet-data:/data/parquet:ro
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Cloudflare Tunnel: exposes http://api:8000 as the Worker's ORIGIN_URL without opening a port.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: aqi-tunnel
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Optional: export from a Postgres/TimescaleDB source on this host instead of the maintainers' machine.
+  exporter:
+    profiles: ["exporter"]
+    build: .
+    container_name: aqi-exporter
+    environment:
+      - POSTGRES_URL=${POSTGRES_URL}
+      - PARQUET_DIR=/data/parquet
+      - R2_BUCKET=${R2_BUCKET:-aqi-data}
+      - CLOUDFLARE_S3=${CLOUDFLARE_S3}
+      - CLOUDFLARE_ACCESS_ID=${CLOUDFLARE_ACCESS_ID}
+      - CLOUDFLARE_SECRET=${CLOUDFLARE_SECRET}
+      - EXPORT_UPLOAD=1
+      - EXPORT_RECENT_MONTHS=2
+      - EXPORT_THREADS=4
+      - EXPORT_MEMORY_LIMIT=4GB
+      - EXPORT_TEMP_DIR=/data/parquet/.tmp
+    volumes:
+      - parquet-data:/data/parquet
+    command: python -m exporter.export_parquet --loop 3600
+    restart: unless-stopped
+
+volumes:
+  parquet-data:

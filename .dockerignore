@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+gateway
+docs
+*.ipynb
+parquet_out
+data
+.DS_Store

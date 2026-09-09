@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.venv/
+venv/
+parquet_out/
+data/
+.DS_Store
+gateway/node_modules/
+gateway/.wrangler/
+gateway/.dev.vars
+.ipynb_checkpoints/

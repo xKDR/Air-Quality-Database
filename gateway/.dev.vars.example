@@ -1,0 +1,8 @@
+# Copy to .dev.vars for `wrangler dev`. Never commit .dev.vars.
+DEV_MODE=true
+ORIGIN_URL=http://localhost:8010
+ORIGIN_SECRET=dev-origin-secret
+ADMIN_SECRET=dev-admin-secret
+# TURNSTILE_SECRET=1x0000000000000000000000000000000AA   # Cloudflare's always-passes test secret
+# RESEND_API_KEY=
+PUBLIC_URL=http://localhost:8787

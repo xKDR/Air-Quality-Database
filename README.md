@@ -15,6 +15,22 @@ what is published, where the stations are, pulling one year into the runtime, pl
 five cities through the year, the daily cycle, the US Embassy monitor against its CPCB neighbour, and maps of
 annual and November PM2.5 by station. Runs top to bottom in Google Colab in about a minute.
 
+## What's in this repository
+
+| Path | What |
+|---|---|
+| `india_air_quality_quickstart.ipynb` | The Colab notebook above |
+| `gateway/` | Cloudflare Worker: the website, API keys (D1), the admin key generator, rate limits, bulk files from R2, proxy to the query service |
+| `api/` | Query service: FastAPI + DuckDB over the Parquet files, behind the gateway |
+| `exporter/` | Postgres/TimescaleDB to Hive-partitioned Parquet, uploaded to R2 |
+| `stations/` | Station location files used to fill coordinates |
+| `docs/PUBLIC_API.md` | User documentation |
+| `docs/DEPLOY_API.md` | How the pieces are deployed and operated |
+| `docker-compose.yml` | Server-side stack: R2 mirror, query service, Cloudflare Tunnel |
+
+The data itself lives on Cloudflare R2 (about 410 MB of Parquet, 196 million rows) and is served through
+the API; it is not in this repository.
+
 ## Getting a key
 
 The demo key on the website reads the 2024 files and is capped at 10,000 rows per API query. For the whole

@@ -1,0 +1,6 @@
+# Query service (api/) and exporter (exporter/)
+duckdb>=1.3
+fastapi
+uvicorn[standard]
+python-dotenv
+boto3
