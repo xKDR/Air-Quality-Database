@@ -12,8 +12,7 @@ as an API and as bulk Parquet files.
 
 [`india_air_quality_quickstart.ipynb`](india_air_quality_quickstart.ipynb) walks through the data with the public demo key:
 what is published, where the stations are, pulling one year into the runtime, plots of Delhi's November smog,
-five cities through the year, the daily cycle, the US Embassy monitor against its CPCB neighbour, and maps of
-annual and November PM2.5 by station. Runs top to bottom in Google Colab in about a minute.
+five cities through the year, the daily cycle, and maps of annual and November PM2.5 by station. Runs top to bottom in Google Colab in about a minute.
 
 ## What's in this repository
 

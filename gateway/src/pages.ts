@@ -223,7 +223,7 @@ WHERE parameter_name = 'PM2.5' GROUP BY 1;</code></pre></div>
   <div class="cols" style="margin-bottom:34px">
     <div class="card coral"><span class="tag">Google Colab</span>
       <h3>Quickstart notebook</h3>
-      <p>Runs top to bottom in about a minute with the demo key: coverage, a station map, one year of data pulled into the runtime, Delhi's November smog hour by hour, five cities through the year, the daily cycle, the US Embassy monitor against its CPCB neighbour, and maps of PM2.5 by station.</p>
+      <p>Runs top to bottom in about a minute with the demo key: coverage, a station map, one year of data pulled into the runtime, Delhi's November smog hour by hour, five cities through the year, the daily cycle, and maps of PM2.5 by station.</p>
       <div class="cta"><a class="btn plain" href="${COLAB_URL}">Open in Colab</a><a class="btn ghost plain" href="${GITHUB_URL}">Source on GitHub</a></div>
     </div>
     <div>
