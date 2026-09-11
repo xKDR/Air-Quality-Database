@@ -160,7 +160,13 @@ Errors are JSON: `{"error": "<code>", "detail": "<human readable>"}`.
 | 503 | `no_data`, `origin_unavailable` | Data not published yet or the query service is down. |
 | 504 | `query_timeout` | Narrow the query. |
 
-## Attribution
+## Licence, attribution and warranty
 
-Data: Central Pollution Control Board (CPCB) CAAQM network; US Department of State / AirNow.
-Please credit both sources, and this API, in publications. Do not resell the raw data.
+The compilation is released under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
+You may use, share and adapt it for any purpose, including commercial work, provided you credit
+*India Air Quality Database, XKDR Forum* and the sources: the Central Pollution Control Board's Continuous
+Ambient Air Quality Monitoring network, and the US Department of State via AirNow.
+
+The data is provided as is, without warranty of any kind. It is published as received from the monitoring
+networks, which themselves label readings preliminary and not fully validated, and it has not been validated
+by XKDR for regulatory, legal or health decisions. Check against the source for anything that matters.

@@ -298,7 +298,8 @@ done</code></pre></div>
     <div><h3>Values</h3><p>Published as received from the source networks: no gap filling, no outlier removal, no calibration. Units are harmonised in spelling only (µg/m³, mg/m³, ppb).</p></div>
     <div><h3>Stations</h3><p><code>station_id</code> is CPCB's site number (<code>site_103</code>) or the embassy id (<code>DS1010001</code>). A few dozen decommissioned stations are missing from CPCB's current list and carry no coordinates.</p></div>
   </div>
-  <p style="margin-top:22px"><b>Sources and attribution.</b> Central Pollution Control Board (CPCB), Continuous Ambient Air Quality Monitoring network; US Department of State air quality monitors, via AirNow. Please credit both sources and <i>India Air Quality API, XKDR Forum</i> in publications. Do not resell the raw data.</p>
+  <p style="margin-top:22px"><b>Licence and attribution.</b> The compilation is released under <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0</a>: use it for anything, including commercial work, and credit <i>India Air Quality Database, XKDR Forum</i> together with the sources, the Central Pollution Control Board's Continuous Ambient Air Quality Monitoring network and the US Department of State via AirNow. If you build a product on it, we would appreciate hearing about it.</p>
+  <p><b>No warranty.</b> The data is provided as is, without warranty of any kind. It is published as received from the monitoring networks, which themselves label readings preliminary and not fully validated, and it has not been validated by XKDR for regulatory, legal or health decisions. Use it at your own risk and check against the source for anything that matters.</p>
 </section>
 </main>` + footer(env);
 }
@@ -337,7 +338,7 @@ export function signupPage(env: Env, opts: { error?: string; values?: Record<str
     <label for="purpose">What will you use the data for? <span class="opt">optional</span></label>
     <textarea id="purpose" name="purpose" maxlength="1000">${val("purpose")}</textarea>
     <label class="check"><input type="checkbox" name="wants_upgrade" value="1" ${v.wants_upgrade ? "checked" : ""}> I need higher limits (research tier). We'll review and email you.</label>
-    <label class="check"><input type="checkbox" name="accept_terms" value="1" required> I will credit the data sources (CPCB and the US Department of State) and XKDR Forum in any publication, and I will not resell the raw data.</label>
+    <label class="check"><input type="checkbox" name="accept_terms" value="1" required> I will credit the data sources (CPCB and the US Department of State) and XKDR Forum in any publication.</label>
     ${turnstile}
     <button type="submit" class="btn" style="margin-top:24px;width:100%">Send confirmation email</button>
   </form>
@@ -429,7 +430,7 @@ export function requestKeyPage(env: Env): string {
 <section class="first">
   <div class="cols">
     <div><h3>While you wait</h3><p>Read the <a href="/#docs">endpoint reference</a>, try the <a href="/#examples">examples</a>, or browse the <a href="/#bulk">bulk files</a>. Your first call will be <code>GET /v1/meta</code>, which tells you what's published.</p></div>
-    <div><h3>Attribution</h3><p>Please credit the Central Pollution Control Board, the US Department of State, and <i>India Air Quality API, XKDR Forum</i> in publications. Do not resell the raw data.</p></div>
+    <div><h3>Licence</h3><p>The compilation is released under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. Credit the Central Pollution Control Board, the US Department of State, and <i>India Air Quality Database, XKDR Forum</i> in publications. Provided as is, without warranty; not validated for regulatory, legal or health decisions.</p></div>
   </div>
 </section>
 </main>` + footer(env);

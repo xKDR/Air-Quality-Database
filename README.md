@@ -61,8 +61,12 @@ Full reference: https://airquality.xkdr.org/#docs
 * `station_id` is CPCB's site number (`site_103`) or the embassy id (`DS1010001`).
 * Each month file is sorted by station, pollutant and time, so Parquet readers skip most of a file when filtering on a station.
 
-## Attribution
+## Licence, attribution and warranty
 
-Data: Central Pollution Control Board (CPCB), Continuous Ambient Air Quality Monitoring network; US Department
-of State air quality monitors via AirNow. Please credit both sources and *India Air Quality API, XKDR Forum*
-in publications. Do not resell the raw data.
+The data compilation is released under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/):
+use it for anything, including commercial work, and credit *India Air Quality Database, XKDR Forum* together with
+the sources, the Central Pollution Control Board (CAAQM network) and the US Department of State via AirNow.
+
+The data is provided as is, without warranty of any kind. It is published as received from the monitoring
+networks, which label readings preliminary and not fully validated, and it has not been validated by XKDR for
+regulatory, legal or health decisions.
