@@ -1,23 +1,26 @@
 # Deploying and operating the public API
 
 ```
-TimescaleDB (maintainers' machine) ──> exporter ──> R2 bucket aqi-data ──> mirror (rclone, Hetzner) ──> api (FastAPI + DuckDB)
- (/path/to/AQIData)                    │                                                  │
-                                                   │                                          Cloudflare Tunnel
-Users ──> Worker aqi-api (D1 keys, signup, rate limits) ── /v1/files/* ── R2 ─┘                       │
-                                                        └─ /v1/*  ───────────────────────────────────────┘
+TimescaleDB (maintainers' machine) ──> exporter ──> R2 bucket aqi-data
+                                                      │         ▲
+Users ──> Worker aqi-api (D1 keys, signup, limits) ───┤         │ S3 API (read-only token)
+                          /v1/files/*  ── R2 binding ─┘         │
+                          /v1/*        ──> Cloud Run aqi-query (api/: FastAPI + DuckDB, asia-south1)
 ```
+
+The gateway, keys and files run on Cloudflare's free plan. The query service runs on Google Cloud Run and scales to
+zero between requests. There is no server to manage.
 
 * **exporter/** turns the readings table into Hive-partitioned Parquet (one sorted file per month) and uploads it to R2.
 * **gateway/** is the Cloudflare Worker: API keys in D1, self-serve signup, rate limits, bulk files from R2, proxy to the api.
-* **api/** answers filtered queries over a local mirror of the Parquet tree. Only accepts requests carrying `GATEWAY_SECRET`.
+* **api/** answers filtered queries by reading the Parquet tree on R2. It runs on Google Cloud Run (service `aqi-query`) and only accepts requests carrying `GATEWAY_SECRET`.
 
 ## Current state (2026-09-09)
 
 | Thing | Value |
 |---|---|
 | Data on R2 | **Published.** 207 month files + stations + parameters + manifest, 410 MB, 196.5 M rows, 2009-01 to 2026-03 |
-| Worker | `aqi-api`, live at `https://airquality.xkdr.org` (custom domain) and `aqi-api.xkdr.workers.dev`; bulk files work now, query routes return 503 until the tunnel is up |
+| Worker | `aqi-api`, live at `https://airquality.xkdr.org` (custom domain) and `aqi-api.xkdr.workers.dev`; bulk files work now; query routes are proxied to the Cloud Run service (section 2) |
 | D1 database | `aqi-api-keys` (id `7befe3ad-7104-4c31-85a6-690a6bbf04de`), migration 0001 applied |
 | R2 bucket | `aqi-data` (APAC) |
 | Turnstile widget | "aqi-api signup" (only used if SIGNUP_MODE is switched to "email") |
@@ -27,18 +30,19 @@ Users ──> Worker aqi-api (D1 keys, signup, rate limits) ── /v1/files/* �
 
 ## How keys are issued
 
-`SIGNUP_MODE = "request"` (the default in `wrangler.toml`): the site tells people to email
-`CONTACT_EMAIL` (admin@xkdr.org) with their name, organisation and intended use, and offers a pre-filled
-mail link. You issue the key at **https://airquality.xkdr.org/admin**:
+`SIGNUP_MODE = "instant"` (the default in `wrangler.toml`): people fill in the form at `/signup`, pass Cloudflare
+Turnstile (widget "aqi-api signup": `TURNSTILE_SITE_KEY` var, `TURNSTILE_SECRET` secret), and get a key on the
+next page, shown once. The only gate is Turnstile: the token is verified server-side and works once. There is no
+signup rate limit and no cap on keys per email, and signing up never revokes existing keys (the email is not
+verified). Name, affiliation and purpose go to the `users` table.
 
-1. Enter the admin secret (`AQI_ADMIN_SECRET` in `.env`). It stays in that browser tab.
-2. Paste the requester's email, name and organisation, click **Generate key**.
-3. Click **Open in Gmail** or **Open in mail app**: a reply with the key, a curl example and the docs link is
-   pre-filled. Or copy the message text. The key is shown once.
-4. The table below lists every key with its last use and 30-day request count, and lets you revoke.
+Every key, self-serve or hand-issued, is on the `full` tier: no rate limit, no row cap, 90-second query timeout
+(Cloudflare cuts responses that take longer than 100 seconds). Only the demo key is limited. At
+**https://airquality.xkdr.org/admin** (admin secret = `AQI_ADMIN_SECRET` in `.env`) you can list keys, revoke one,
+or issue one by hand.
 
-Issued keys default to the `full` tier: **no rate limit, no row cap**, three-minute query timeout. The other
-tiers (`dashboard`, `research`, `free`) remain for special cases such as a key embedded in a public web page.
+`SIGNUP_MODE = "request"` switches back to "email us and we issue keys by hand": the admin page pre-fills the reply
+with the key, a curl example and the docs link.
 
 **Demo key.** `DEMO_API_KEY` in `wrangler.toml` is public and appears in every example on the site. It is
 the `demo` tier: 10,000 rows per query, 30 requests a minute per IP, no bulk files. Change the value and
@@ -60,7 +64,7 @@ interactive reference; its Authorize button sends the bearer key through the gat
 
 Source of truth is the maintainers' TimescaleDB (`readings` + `stations` tables).
 The exporter auto-detects its schema (`readings` + `stations`) and also understands the dashboard schema
-(`air_quality_data`) on the Hetzner box, so either can feed the same tree.
+(`air_quality_data`), so either can feed the same tree.
 
 ```bash
 export SRC=postgresql://aqi:<password>@localhost:5433/aqi OUT=/path/to/parquet
@@ -88,42 +92,48 @@ What the exporter does to the data:
 Coverage today: CPCB dense through 2024, thin in 2025 (ends 2025-09-01; the local DB is a snapshot), embassy
 through 2026-03-27. Loading fresher scraper output into TimescaleDB and re-running `--since` extends it.
 
-## 2. Server side (Hetzner box)
+## 2. Query service on Google Cloud Run
 
-Add to the server's `.env` (copy values from your local `.env`):
+The query service (`api/`, FastAPI + DuckDB) runs on Google Cloud Run. It reads the Parquet files straight from R2
+over the S3 API, scales to zero between requests, and refuses anything without the gateway secret. (Cloudflare
+Containers would keep it on Cloudflare but need the Workers Paid plan; that was tried and rolled out of the config.)
 
-```
-GATEWAY_SECRET=...        # same value as the Worker's ORIGIN_SECRET
-R2_BUCKET=aqi-data
-CLOUDFLARE_S3=https://<account-id>.r2.cloudflarestorage.com
-CLOUDFLARE_ACCESS_ID=...  # R2 token; read-only on aqi-data is enough here
-CLOUDFLARE_SECRET=...
-TUNNEL_TOKEN=...          # from step 3
-```
+| Item | Value |
+|---|---|
+| Service | `aqi-query` in project `gen-lang-client-0400158481`, region `asia-south1`. The other services in that project belong to other products: leave them alone. |
+| URL | https://aqi-query-35101441745.asia-south1.run.app, set as `ORIGIN_URL` in `gateway/wrangler.toml` |
+| Service account | `aqi-query-runtime@gen-lang-client-0400158481.iam.gserviceaccount.com`, no roles (the service needs no Google permissions) |
+| Image | `asia-south1-docker.pkg.dev/gen-lang-client-0400158481/cloud-run-source-deploy/aqi-query:<tag>`, built from `api/Dockerfile` |
+| Size | 2 vCPU, 4 GiB, concurrency 8, request timeout 300 s, 0 to 2 instances |
+| Env vars | `PARQUET_DIR=s3://aqi-data`; `CLOUDFLARE_S3`, `CLOUDFLARE_ACCESS_ID`, `CLOUDFLARE_SECRET` = the read-only R2 token (`R2_*` in `.env`); `GATEWAY_SECRET` = the Worker's `ORIGIN_SECRET`; `API_DUCKDB_THREADS=16` (reads from R2 are network-bound, so threads help even on 2 vCPU: a cold 10-year city query went from 93 s to 29 s), `API_DUCKDB_MEMORY_LIMIT=3GB`, `API_QUERY_TIMEOUT_SECONDS=30`, `API_QUERY_TIMEOUT_FULL_SECONDS=90` (must stay under Cloudflare's 100 s limit, or callers get a bare 524) |
 
-Then:
+Ship a code change (build locally, push, deploy; env vars are kept):
 
 ```bash
-docker compose build api
-docker compose up -d mirror api
-docker compose logs -f mirror     # first sync pulls ~0.5 GB, later runs are no-ops unless R2 changed
-docker exec aqi-api curl -s localhost:8000/health
+P=gen-lang-client-0400158481
+IMG=asia-south1-docker.pkg.dev/$P/cloud-run-source-deploy/aqi-query:$(date +%Y%m%d-%H%M)
+docker build --platform linux/amd64 -f api/Dockerfile -t "$IMG" .
+gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev
+docker push "$IMG"
+gcloud run deploy aqi-query --image "$IMG" --region asia-south1 --project $P --quiet
 ```
 
-The `mirror` container re-syncs from R2 every 10 minutes (`MIRROR_INTERVAL_SECONDS`). The api re-reads the
-manifest whenever its mtime changes, so new months appear without a restart. The api publishes no host port.
+Change a setting without rebuilding: `gcloud run services update aqi-query --region asia-south1 --update-env-vars KEY=value`.
+Never pass `--set-env-vars` to an existing service: it replaces the whole set.
 
-If you would rather skip the mirror, set `PARQUET_DIR=s3://aqi-data` on the api service: it then reads R2
-directly. Small queries take ~1 s; multi-year queries take 10 to 35 s, which is why the mirror is the default.
+Rotate the gateway secret by setting the same new value on both sides:
 
-## 3. Cloudflare Tunnel (origin for the Worker)
+```bash
+cd gateway && npx wrangler secret put ORIGIN_SECRET
+gcloud run services update aqi-query --region asia-south1 --update-env-vars GATEWAY_SECRET=<same value>
+```
 
-1. Cloudflare dashboard → Zero Trust → Networks → Tunnels → Create a tunnel (Cloudflared). Name it `aqi-origin`.
-2. Copy the tunnel token into `TUNNEL_TOKEN` in the server `.env`, then `docker compose up -d cloudflared`.
-3. In the tunnel's **Public Hostname** tab add: subdomain `aqi-origin`, domain `xkdr.org`, service `http://api:8000`.
-4. In `gateway/wrangler.toml` set `ORIGIN_URL = "https://aqi-origin.xkdr.org"` and redeploy (`cd gateway && npm run deploy`).
+Roll back: `gcloud run revisions list --service aqi-query --region asia-south1`, then
+`gcloud run services update-traffic aqi-query --region asia-south1 --to-revisions <REVISION>=100`.
 
-Anyone hitting `aqi-origin.xkdr.org` directly gets a 403 from the api because they lack the gateway secret.
+Cost: Cloud Run's monthly free allowance covers light use; beyond it you pay only for the seconds an instance spends
+handling requests. The first request after an idle spell takes a few extra seconds while an instance starts. Logs:
+`gcloud run services logs read aqi-query --region asia-south1`.
 
 ## 4. Email for signups (only if you switch to self-serve)
 

@@ -10,6 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from urllib.parse import urlparse
+
 import duckdb
 
 from . import config
@@ -50,7 +52,8 @@ class Data:
         secret = os.environ.get("CLOUDFLARE_SECRET", "")
         if not (endpoint and key_id and secret):
             raise SystemExit("PARQUET_DIR is remote; set CLOUDFLARE_S3, CLOUDFLARE_ACCESS_ID and CLOUDFLARE_SECRET")
-        host = endpoint.replace("https://", "").replace("http://", "").rstrip("/")
+        # Accept the endpoint with or without a trailing bucket path (the dashboard shows ".../<bucket>"): keep only the host.
+        host = urlparse(endpoint if "://" in endpoint else f"https://{endpoint}").netloc
         self.con.execute(f"""
             CREATE OR REPLACE SECRET r2 (
                 TYPE s3, PROVIDER config,

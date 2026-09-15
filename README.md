@@ -20,12 +20,12 @@ five cities through the year, the daily cycle, and maps of annual and November P
 |---|---|
 | `india_air_quality_quickstart.ipynb` | The Colab notebook above |
 | `gateway/` | Cloudflare Worker: the website, API keys (D1), the admin key generator, rate limits, bulk files from R2, proxy to the query service |
-| `api/` | Query service: FastAPI + DuckDB over the Parquet files, behind the gateway |
+| `api/` | Query service: FastAPI + DuckDB over the Parquet files, behind the gateway; runs on Google Cloud Run (`api/Dockerfile`) |
 | `exporter/` | Postgres/TimescaleDB to Hive-partitioned Parquet, uploaded to R2 |
 | `stations/` | Station location files used to fill coordinates |
 | `docs/PUBLIC_API.md` | User documentation |
 | `docs/DEPLOY_API.md` | How the pieces are deployed and operated |
-| `docker-compose.yml` | Server-side stack: R2 mirror, query service, Cloudflare Tunnel |
+| `docker-compose.yml` | Local development stack: R2 mirror, query service, exporter |
 
 The data itself lives on Cloudflare R2 (about 410 MB of Parquet, 196 million rows) and is served through
 the API; it is not in this repository.
@@ -33,8 +33,8 @@ the API; it is not in this repository.
 ## Getting a key
 
 The demo key on the website reads the 2024 files and is capped at 10,000 rows per API query. For the whole
-archive with no limits, email **admin@xkdr.org** with your name, your organisation, and how you plan to use
-the data. See https://airquality.xkdr.org/signup.
+archive, get your own key in about a minute at https://airquality.xkdr.org/signup: fill in the form, pass
+Cloudflare's human check, and copy the key. Keys have no rate limit and no row cap.
 
 ## Using the API
 

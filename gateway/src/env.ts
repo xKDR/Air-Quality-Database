@@ -9,7 +9,6 @@ export interface Env {
   LIMITER_FREE?: RateLimit;
   LIMITER_RESEARCH?: RateLimit;
   LIMITER_DASHBOARD?: RateLimit;
-  LIMITER_SIGNUP?: RateLimit;
   LIMITER_ANON?: RateLimit;
   LIMITER_DEMO?: RateLimit;
 
@@ -23,6 +22,7 @@ export interface Env {
   DEMO_BULK_YEARS: string; // comma-separated years the demo key may read as bulk files
   ALLOWED_ORIGINS: string;
   DEV_MODE: string;
+  // "instant" (default): sign-up form + Cloudflare Turnstile, and the key is shown straight away.
   // "request": people email CONTACT_EMAIL and keys are issued from /admin. "email": self-serve magic links (needs EMAIL_PROVIDER).
   SIGNUP_MODE: string;
 
@@ -34,4 +34,5 @@ export interface Env {
 }
 
 export const isDev = (env: Env) => env.DEV_MODE === "true";
-export const isRequestMode = (env: Env) => env.SIGNUP_MODE !== "email";
+export const isRequestMode = (env: Env) => env.SIGNUP_MODE === "request";
+export const isInstantMode = (env: Env) => env.SIGNUP_MODE !== "request" && env.SIGNUP_MODE !== "email";

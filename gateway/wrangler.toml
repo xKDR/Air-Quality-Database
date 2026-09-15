@@ -15,14 +15,14 @@ enabled = true
 [vars]
 # Where this Worker is reachable (used in verification emails). Update after adding a custom domain.
 PUBLIC_URL = "https://airquality.xkdr.org"
-# The FastAPI query service (api/): the Cloudflare Tunnel hostname in front of the `api` container,
-# e.g. "https://aqi-origin.xkdr.org". Empty = query routes answer 503 until the tunnel is up (bulk files still work).
-ORIGIN_URL = ""
+# The FastAPI query service (api/) on Google Cloud Run. It refuses requests without ORIGIN_SECRET, so the URL is not sensitive.
+# Empty = query routes answer 503 (bulk files still work).
+ORIGIN_URL = "https://aqi-query-35101441745.asia-south1.run.app"
 # Turnstile widget site key (public). Widget "aqi-api signup" in the Cloudflare dashboard; secret is the TURNSTILE_SECRET Worker secret.
 TURNSTILE_SITE_KEY = "0x4AAAAAAEtvqbGpWy1AGIXz"
-# How people get keys. "request": they email CONTACT_EMAIL and you issue keys at /admin (no email infrastructure needed).
-# "email": self-serve signup with verification links, which needs EMAIL_PROVIDER below.
-SIGNUP_MODE = "request"
+# How people get keys. "instant": sign-up form + Cloudflare Turnstile (TURNSTILE_SITE_KEY / TURNSTILE_SECRET), key shown at once.
+# "request": they email CONTACT_EMAIL and you issue keys at /admin. "email": verification links, which needs EMAIL_PROVIDER below.
+SIGNUP_MODE = "instant"
 # Only used when SIGNUP_MODE = "email": "resend" (needs RESEND_API_KEY secret + verified sender domain) or "log".
 EMAIL_PROVIDER = "log"
 EMAIL_FROM = "India Air Quality API <api@xkdr.org>"
@@ -34,6 +34,16 @@ DEMO_API_KEY = "aqi_demo_wbf92Qx21zX-Wa_Tg8Dx1nXe"
 ALLOWED_ORIGINS = ""
 # "true" only for local development: skips Turnstile when unset and returns the verify link in the signup response.
 DEV_MODE = "false"
+
+# A Cloudflare Container query service was tried on 2026-09-15 and needs the Workers Paid plan. The Durable Object
+# class it created is deleted here; keep both migrations, Cloudflare applies them in order.
+[[migrations]]
+tag = "v1-query-service"
+new_sqlite_classes = ["QueryService"]
+
+[[migrations]]
+tag = "v2-remove-query-service"
+deleted_classes = ["QueryService"]
 
 [[d1_databases]]
 binding = "KEYS"
@@ -63,12 +73,6 @@ name = "LIMITER_DASHBOARD"
 type = "ratelimit"
 namespace_id = "1003"
 simple = { limit = 120, period = 60 }
-
-[[unsafe.bindings]]
-name = "LIMITER_SIGNUP"
-type = "ratelimit"
-namespace_id = "1004"
-simple = { limit = 5, period = 60 }
 
 [[unsafe.bindings]]
 name = "LIMITER_DEMO"

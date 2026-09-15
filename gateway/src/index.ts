@@ -3,7 +3,7 @@
  *
  *   GET  /                     documentation (live coverage numbers from the manifest on R2)
  *   GET  /health
- *   GET  /signup, POST /signup, GET /verify      self-serve API keys (email magic link)
+ *   GET  /signup, POST /signup, GET /verify      self-serve API keys (SIGNUP_MODE: instant with Turnstile, email link, or request)
  *   *    /admin/*              operator routes (ADMIN_SECRET)
  *   GET  /v1/docs, /v1/openapi.json              interactive docs, no key needed (IP rate-limited)
  *   GET  /v1/files/<key>       bulk Parquet from R2               (API key)

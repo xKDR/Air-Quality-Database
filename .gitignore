@@ -12,3 +12,4 @@ gateway/node_modules/
 gateway/.wrangler/
 gateway/.dev.vars
 .ipynb_checkpoints/
+.env.example

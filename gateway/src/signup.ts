@@ -1,9 +1,9 @@
 import type { Env } from "./env";
-import { isDev } from "./env";
+import { isDev, isInstantMode } from "./env";
 import { isoInMinutes, isoNow, randomToken, sha256hex } from "./crypto";
 import { sendVerifyEmail } from "./email";
 import { clientIp, html, json, readBody, wantsJson } from "./http";
-import { allow, DEFAULT_TIER, issueKey, revokeKeysFor, type Tier } from "./keys";
+import { DEFAULT_TIER, issueKey, revokeKeysFor, type Tier } from "./keys";
 import { checkEmailPage, keyPage, messagePage, signupPage } from "./pages";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -33,7 +33,6 @@ export async function postSignup(req: Request, env: Env, ctx: ExecutionContext):
   const name = (body.name ?? "").trim().slice(0, 120);
   const affiliation = (body.affiliation ?? "").trim().slice(0, 200) || null;
   const purpose = (body.purpose ?? "").trim().slice(0, 1000) || null;
-  const wantsUpgrade = body.wants_upgrade ? 1 : 0;
   const ip = clientIp(req);
 
   const fail = (status: number, error: string) =>
@@ -42,20 +41,31 @@ export async function postSignup(req: Request, env: Env, ctx: ExecutionContext):
   if (!EMAIL_RE.test(email) || email.length > 254) return fail(400, "Please enter a valid email address.");
   if (!name) return fail(400, "Please enter your name.");
   if (!body.accept_terms) return fail(400, "Please accept the attribution terms.");
-  if (!(await allow(env.LIMITER_SIGNUP, ip))) return fail(429, "Too many signups from your network. Try again in a minute.");
+  // Cloudflare Turnstile is the only gate: no signup rate limit, no cap on keys per email.
   if (!(await verifyTurnstile(env, body["cf-turnstile-response"] ?? "", ip))) {
-    return fail(400, "The anti-bot check failed. Please try again.");
+    return fail(400, "The human check failed or expired. Please tick it again and resubmit.");
   }
 
+  const now = isoNow();
+  const upsertUser = env.KEYS.prepare(
+    "INSERT INTO users (email, name, affiliation, purpose, wants_upgrade, created_at) VALUES (?, ?, ?, ?, 0, ?) " +
+    "ON CONFLICT (email) DO UPDATE SET name = excluded.name, affiliation = excluded.affiliation, purpose = excluded.purpose",
+  ).bind(email, name, affiliation, purpose, now);
+
+  // Instant mode: the human check passed, so issue a key now and show it once. Every key is the same (full access);
+  // signing up never revokes existing keys, because the email address is not verified.
+  if (isInstantMode(env)) {
+    await upsertUser.run();
+    const { id, key } = await issueKey(env, email, DEFAULT_TIER, "instant signup (email not verified)", null);
+    if (asJson) return json(201, { ok: true, id, key, tier: DEFAULT_TIER, note: "Store this key now; it cannot be retrieved again." });
+    return html(200, keyPage(env, key, DEFAULT_TIER, false), { "cache-control": "no-store" });
+  }
+
+  // Email mode: send a one-time confirmation link; the key is issued at /verify.
   const token = randomToken(32);
   const tokenHash = await sha256hex(token);
-  const now = isoNow();
   await env.KEYS.batch([
-    env.KEYS.prepare(
-      "INSERT INTO users (email, name, affiliation, purpose, wants_upgrade, created_at) VALUES (?, ?, ?, ?, ?, ?) " +
-      "ON CONFLICT (email) DO UPDATE SET name = excluded.name, affiliation = excluded.affiliation, " +
-      "purpose = excluded.purpose, wants_upgrade = max(users.wants_upgrade, excluded.wants_upgrade)",
-    ).bind(email, name, affiliation, purpose, wantsUpgrade, now),
+    upsertUser,
     env.KEYS.prepare(
       "INSERT INTO verify_tokens (token_hash, email, expires_at, ip) VALUES (?, ?, ?, ?)",
     ).bind(tokenHash, email, isoInMinutes(TOKEN_TTL_MIN), ip),
@@ -93,7 +103,7 @@ export async function getVerify(req: Request, env: Env): Promise<Response> {
   ).bind(isoNow(), tokenHash).run();
   if (!burn.meta.changes) return fail(400, "Link expired", "This confirmation link was already used.");
 
-  // Keep an upgraded tier on rotation, so a research user who loses a key does not drop to free.
+  // Keep an admin-set tier on rotation; otherwise every key is the default (full access).
   const prev = await env.KEYS.prepare(
     "SELECT tier FROM api_keys WHERE owner_email = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
   ).bind(row.email).first<{ tier: string }>();

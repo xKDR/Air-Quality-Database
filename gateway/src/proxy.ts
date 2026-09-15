@@ -42,7 +42,10 @@ export async function serveFile(req: Request, env: Env, key: string): Promise<Re
   return new Response(obj.body, { status: 200, headers: h });
 }
 
-/** Forward a data request to the FastAPI origin, stamping the caller's identity and the gateway secret. */
+/**
+ * Forward a data request to the query service (api/ on Google Cloud Run, at ORIGIN_URL), stamping the caller's
+ * identity and the gateway secret. The service scales to zero, so the first request after a quiet spell is slower.
+ */
 export async function forwardToOrigin(req: Request, env: Env, caller: KeyRow): Promise<Response> {
   if (req.method !== "GET" && req.method !== "HEAD") return json(405, { error: "method_not_allowed" });
   if (!env.ORIGIN_URL || !env.ORIGIN_SECRET) return json(503, { error: "origin_unavailable", detail: "Query service is not configured." });
@@ -62,8 +65,8 @@ export async function forwardToOrigin(req: Request, env: Env, caller: KeyRow): P
   try {
     resp = await fetch(outUrl.toString(), { method: req.method, headers, redirect: "manual" });
   } catch (e) {
-    console.error("origin fetch failed:", e);
-    return json(502, { error: "origin_unreachable", detail: "The query service did not respond. Try again shortly." });
+    console.error("origin fetch failed:", e instanceof Error ? e.message : String(e));
+    return json(502, { error: "origin_unreachable", detail: "The query service did not respond. It may be starting up; try again in a few seconds." });
   }
   // Hide origin internals, keep the useful headers.
   const out = new Response(resp.body, { status: resp.status, headers: resp.headers });

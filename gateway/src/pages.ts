@@ -4,7 +4,7 @@
  * square corners, 2 px black borders. See https://www.xkdr.org.
  */
 import type { Env } from "./env";
-import { isRequestMode } from "./env";
+import { isInstantMode, isRequestMode } from "./env";
 import { LOGO_FULL, LOGO_MARK } from "./brand";
 import { escapeHtml } from "./http";
 
@@ -120,7 +120,7 @@ function footer(env: Env): string {
   return `<footer><div class="wrap foot">
   <div>${LOGO_FULL}<p>Built and maintained by <a href="https://www.xkdr.org" rel="noopener">XKDR Forum</a>, Mumbai. Data from the Central Pollution Control Board's CAAQM network and the US Department of State via AirNow.</p>
   ${env.CONTACT_EMAIL ? `<p>Questions, corrections, higher limits: <a href="mailto:${escapeHtml(env.CONTACT_EMAIL)}">${escapeHtml(env.CONTACT_EMAIL)}</a></p>` : ""}</div>
-  <nav><a href="/#docs">Docs</a><a href="${COLAB_URL}">Colab notebook</a><a href="${GITHUB_URL}">GitHub</a><a href="/#bulk">Bulk data</a><a href="/#limits">Keys</a><a href="/#data">About the data</a><a href="/signup">${isRequestMode(env) ? "Request a key" : "Get a key"}</a></nav>
+  <nav><a href="/#docs">Docs</a><a href="${COLAB_URL}">Colab notebook</a><a href="${GITHUB_URL}">GitHub</a><a href="/#bulk">Bulk data</a><a href="/#limits">Keys</a><a href="/#data">About the data</a><a href="/#cite">Cite</a><a href="/signup">${isRequestMode(env) ? "Request a key" : "Get a key"}</a></nav>
 </div></footer></body></html>`;
 }
 
@@ -163,7 +163,7 @@ export function landingPage(env: Env, stats: Stats | null): string {
     <h1>Hourly air quality for India, since 2009.</h1>
     <p class="lede">Readings from every station in CPCB's continuous monitoring network and the five US Embassy monitors, cleaned into one table. Query a slice through the API, or take the Parquet files whole.</p>
     <div class="cta"><a class="btn plain" href="/signup">${isRequestMode(env) ? "Request an API key" : "Get an API key"}</a><a class="btn ghost plain" href="#docs">Read the docs</a><a class="btn ghost plain" href="${COLAB_URL}">Open in Colab</a></div>
-    ${env.DEMO_API_KEY ? `<p class="small grey" style="margin-top:22px">Try it right now with the demo key <code>${escapeHtml(demo)}</code>. The API examples on this page use it. It is capped at 10,000 rows per query and can only read the 2024 bulk files; a key of your own has no limits.</p>` : ""}
+    ${env.DEMO_API_KEY ? `<p class="small grey" style="margin-top:22px">Try it right now with the demo key <code>${escapeHtml(demo)}</code>. The API examples on this page use it. It is capped at 10,000 rows per query and can only read the 2024 bulk files; <a href="/signup">a key of your own</a> has no limits.</p>` : ""}
   </div>
   ${statsCard}
 </div>
@@ -273,19 +273,24 @@ done</code></pre></div>
 
 <section id="limits">
   <p class="eyebrow">Keys</p>
-  <h2>Free, full access. Just ask.</h2>
+  <h2>${isInstantMode(env) ? "Free keys, in about a minute." : "Free, full access. Just ask."}</h2>
   <div class="cols">
     <div>
-      <ol class="steps">
+      ${isInstantMode(env) ? `<ol class="steps">
+        <li><div><b>Fill in <a href="/signup">the short form</a>.</b> Your name and email; your organisation and plans are optional.</div></li>
+        <li><div><b>Pass Cloudflare's human check.</b> It usually ticks itself.</div></li>
+        <li><div><b>Copy your key.</b> It is shown once. Keep it private; if you lose it, sign up again for a new one.</div></li>
+      </ol>
+      <div class="cta"><a class="btn plain" href="/signup">Get an API key</a></div>` : `<ol class="steps">
         <li><div><b>Email <a href="${mailto}">${escapeHtml(env.CONTACT_EMAIL)}</a>.</b> Tell us your name, which organisation you are with, and how you plan to use the data.</div></li>
         <li><div><b>We reply with your key</b>, usually within a working day.</div></li>
         <li><div><b>Keep it private.</b> If it leaks or you lose it, email us and we'll rotate it.</div></li>
       </ol>
-      <div class="cta"><a class="btn plain" href="/signup">Request a key</a></div>
+      <div class="cta"><a class="btn plain" href="/signup">Request a key</a></div>`}
     </div>
     <div>
       <h3>No rate limits, no row caps</h3>
-      <p>A key can do everything the API offers, at whatever pace you need. Two practical notes: JSON is verbose, so ask for <code>format=csv</code> or <code>parquet</code> when you expect more than a few hundred thousand rows, and single queries time out after three minutes, so pull whole years from the <a href="#bulk">bulk files</a> instead.</p>
+      <p>Every key can do everything the API offers, at whatever pace you need, and reads every bulk file. Two practical notes: JSON is verbose, so ask for <code>format=csv</code> or <code>parquet</code> when you expect more than a few hundred thousand rows, and single queries time out after 90 seconds, so pull whole years from the <a href="#bulk">bulk files</a> instead.</p>
     </div>
   </div>
 </section>
@@ -298,8 +303,30 @@ done</code></pre></div>
     <div><h3>Values</h3><p>Published as received from the source networks: no gap filling, no outlier removal, no calibration. Units are harmonised in spelling only (µg/m³, mg/m³, ppb).</p></div>
     <div><h3>Stations</h3><p><code>station_id</code> is CPCB's site number (<code>site_103</code>) or the embassy id (<code>DS1010001</code>). A few dozen decommissioned stations are missing from CPCB's current list and carry no coordinates.</p></div>
   </div>
-  <p style="margin-top:22px"><b>Licence and attribution.</b> The compilation is released under <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0</a>: use it for anything, including commercial work, and credit <i>India Air Quality Database, XKDR Forum</i> together with the sources, the Central Pollution Control Board's Continuous Ambient Air Quality Monitoring network and the US Department of State via AirNow. If you build a product on it, we would appreciate hearing about it.</p>
+  <p style="margin-top:22px"><b>Licence and attribution.</b> The compilation is released under <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0</a>: use it for anything, including commercial work, and credit <i>India Air Quality Database, XKDR Forum</i> together with the sources, the Central Pollution Control Board's Continuous Ambient Air Quality Monitoring network and the US Department of State via AirNow. If you build a product on it, we would appreciate hearing about it. <a href="#cite">How to cite it</a>.</p>
   <p><b>No warranty.</b> The data is provided as is, without warranty of any kind. It is published as received from the monitoring networks, which themselves label readings preliminary and not fully validated, and it has not been validated by XKDR for regulatory, legal or health decisions. Use it at your own risk and check against the source for anything that matters.</p>
+</section>
+
+<section id="cite">
+  <p class="eyebrow">Cite</p>
+  <h2>How to cite the data</h2>
+  <div class="cols">
+    <div>
+      <p>If you use the data in a paper, report, story or product, cite the database and credit its two sources.</p>
+      <div class="code"><span class="lbl">Citation</span><pre style="white-space:pre-wrap"><code style="white-space:pre-wrap">XKDR Forum (2026). India Air Quality Database. ${escapeHtml(base)}</code></pre></div>
+      <p class="small grey" style="margin-top:14px"><b>Sources:</b> Central Pollution Control Board (CPCB), Continuous Ambient Air Quality Monitoring network; US Department of State air quality monitors, via AirNow.</p>
+    </div>
+    <div>
+      <div class="code"><span class="lbl">BibTeX</span><pre><code>@misc{xkdr_aqi_2026,
+  author = {{XKDR Forum}},
+  title  = {India Air Quality Database},
+  year   = {2026},
+  url    = {${escapeHtml(base)}},
+  note   = {Hourly readings, CPCB CAAQM
+            and US Embassy monitors}
+}</code></pre></div>
+    </div>
+  </div>
 </section>
 </main>` + footer(env);
 }
@@ -307,11 +334,22 @@ done</code></pre></div>
 // ---------------------------------------------------------------------------
 // Signup flow
 // ---------------------------------------------------------------------------
+/** Plain-language limits for a tier, matching wrangler.toml rate limits and api/config.py row caps. */
+export function tierLimits(tier: string): string {
+  switch (tier) {
+    case "full": return "no rate limit and no row cap";
+    case "research": return "600 requests a minute and 5 million rows a query";
+    case "dashboard": return "120 requests a minute and 100,000 rows a query";
+    default: return "60 requests a minute and 100,000 rows a query";
+  }
+}
+
 export function signupPage(env: Env, opts: { error?: string; values?: Record<string, string> } = {}): string {
   const v = opts.values ?? {};
+  const instant = isInstantMode(env);
   const val = (k: string) => escapeHtml(v[k] ?? "");
   const turnstile = env.TURNSTILE_SITE_KEY
-    ? `<div class="cf-turnstile" data-sitekey="${escapeHtml(env.TURNSTILE_SITE_KEY)}" data-theme="light" style="margin-top:22px"></div>`
+    ? `<div class="cf-turnstile" data-sitekey="${escapeHtml(env.TURNSTILE_SITE_KEY)}" data-theme="light" data-size="flexible" data-action="signup" style="margin-top:22px"></div>`
     : "";
   const extra = env.TURNSTILE_SITE_KEY ? `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>` : "";
   return head("Get an API key · India Air Quality API", extra) + header(env, "signup") + `
@@ -320,11 +358,15 @@ export function signupPage(env: Env, opts: { error?: string; values?: Record<str
   <div>
     <p class="eyebrow">Sign up</p>
     <h1 style="font-size:clamp(36px,5vw,54px)">Get an API key.</h1>
-    <p class="lede">Free, instant, and yours to keep. We email you a confirmation link; your key appears when you click it.</p>
+    <p class="lede">${instant
+      ? "Free and instant. Fill in the form, pass Cloudflare's quick human check, and your key appears on the next page."
+      : "Free, instant, and yours to keep. We email you a confirmation link; your key appears when you click it."}</p>
     <ol class="steps" style="margin-top:26px">
       <li><div><b>Tell us who you are.</b> An email and a name are all we need.</div></li>
-      <li><div><b>Confirm your email.</b> The link works once and expires in 30 minutes.</div></li>
-      <li><div><b>Start querying.</b> The free tier allows 60 requests a minute and 100,000 rows a query.</div></li>
+      ${instant
+        ? `<li><div><b>Show you're human.</b> Cloudflare's check usually passes on its own; sometimes it asks for one click.</div></li>`
+        : `<li><div><b>Confirm your email.</b> The link works once and expires in 30 minutes.</div></li>`}
+      <li><div><b>Start querying.</b> Your key has no rate limit and no row cap, and reads every bulk file.</div></li>
     </ol>
   </div>
   <form method="post" action="/signup" class="card" novalidate>
@@ -337,10 +379,9 @@ export function signupPage(env: Env, opts: { error?: string; values?: Record<str
     <input type="text" id="affiliation" name="affiliation" maxlength="200" value="${val("affiliation")}" placeholder="University, company, newsroom, just curious">
     <label for="purpose">What will you use the data for? <span class="opt">optional</span></label>
     <textarea id="purpose" name="purpose" maxlength="1000">${val("purpose")}</textarea>
-    <label class="check"><input type="checkbox" name="wants_upgrade" value="1" ${v.wants_upgrade ? "checked" : ""}> I need higher limits (research tier). We'll review and email you.</label>
     <label class="check"><input type="checkbox" name="accept_terms" value="1" required> I will credit the data sources (CPCB and the US Department of State) and XKDR Forum in any publication.</label>
     ${turnstile}
-    <button type="submit" class="btn" style="margin-top:24px;width:100%">Send confirmation email</button>
+    <button type="submit" class="btn" style="margin-top:24px;width:100%">${instant ? "Get my API key" : "Send confirmation email"}</button>
   </form>
 </div>
 </main>` + footer(env);
@@ -373,9 +414,9 @@ function cp(){var t=document.getElementById('key').textContent;navigator.clipboa
   <div>
     <p class="eyebrow">Done</p>
     <h1 style="font-size:clamp(36px,5vw,54px)">Here's your key.</h1>
-    <p class="lede">Copy it now. <b>It will not be shown again.</b> If you lose it, sign up again with the same email and a new key replaces this one.</p>
+    <p class="lede">Copy it now. <b>It will not be shown again.</b> ${isInstantMode(env) ? "If you lose it, sign up again for a new one." : "If you lose it, sign up again with the same email and a new key replaces this one."}</p>
     <div class="keybox"><code id="key">${escapeHtml(key)}</code><button class="btn small" id="cpb" onclick="cp()" type="button">Copy</button></div>
-    <p class="small grey">Tier: <b>${escapeHtml(tier)}</b>${rotated ? " · your previous key has been revoked" : ""}. Send it as <code>Authorization: Bearer …</code> on every request.</p>
+    <p class="small grey">Tier: <b>${escapeHtml(tier)}</b> (${tierLimits(tier)})${rotated ? " · your previous key has been revoked" : ""}. Send it as <code>Authorization: Bearer …</code> on every request.</p>
   </div>
   <div>
     <div class="code"><span class="lbl">Try it</span><pre><code>curl -H "Authorization: Bearer <span class="k">${escapeHtml(key.slice(0, 12))}…</span>" \\

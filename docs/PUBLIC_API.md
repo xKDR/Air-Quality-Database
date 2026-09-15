@@ -10,10 +10,9 @@ Base URL: `https://airquality.xkdr.org`
 
 ## Getting a key
 
-Email **admin@xkdr.org** with your name, the organisation you are with, and how you plan to use the
-data set. The site's [Request a key](https://airquality.xkdr.org/signup) button opens a pre-filled message.
-You get a key back by email, usually within a working day. Keys never expire; if one leaks or gets lost,
-email again and it is rotated.
+Get one in about a minute at **https://airquality.xkdr.org/signup**: give your name and email (organisation
+and intended use are optional), pass Cloudflare's human check, and the key appears on the next page. It is
+shown once, so store it. Keys never expire. If you lose one, sign up again for a new one.
 
 Send the key as a bearer token on every request:
 
@@ -22,8 +21,8 @@ curl -H "Authorization: Bearer aqi_..." "https://airquality.xkdr.org/v1/meta"
 ```
 
 **Demo key.** Every example on the site uses a public demo key (shown on the home page) so you can try the
-API before asking. It is capped at 10,000 rows per query and 30 requests a minute per IP address, and it
-cannot download bulk files.
+API before asking. It is capped at 10,000 rows per query and 300 requests a minute per IP address, and it
+can only read the 2024 bulk files.
 
 ## Endpoints
 
@@ -141,9 +140,10 @@ current extent; `/v1/stations` gives `first_seen` and `last_seen` per station.
 
 ## Limits
 
-Issued keys have **no rate limit and no row cap**. Two practical notes: JSON is verbose, so ask for
-`format=csv` or `parquet` when you expect more than a few hundred thousand rows; and a single query times
-out after three minutes, so pull whole years from the bulk files rather than through `/v1/measurements`.
+Every key has **no rate limit and no row cap**; only the demo key is limited. Two practical notes: JSON is
+verbose, so ask for `format=csv` or `parquet` when you expect more than a few hundred thousand rows; and a
+single query times out after 90 seconds, so pull whole years from the bulk files rather than through
+`/v1/measurements`.
 
 The demo key is limited (see above).
 
@@ -156,7 +156,7 @@ Errors are JSON: `{"error": "<code>", "detail": "<human readable>"}`.
 | 400 | `invalid_parameter`, `request_error` | Bad input. |
 | 401 | `missing_api_key`, `invalid_api_key` | Send a valid bearer token. |
 | 429 | `rate_limited` | Demo key only: slow down; see `Retry-After`. |
-| 403 | `demo_key` | The demo key cannot download bulk files. |
+| 403 | `demo_key` | The demo key can only read the 2024 bulk files. |
 | 503 | `no_data`, `origin_unavailable` | Data not published yet or the query service is down. |
 | 504 | `query_timeout` | Narrow the query. |
 

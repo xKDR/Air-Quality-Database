@@ -1,6 +1,6 @@
-# Server-side stack for the India Air Quality API (see docs/DEPLOY_API.md).
+# Local stack for development and one-off exports. Production: gateway on Cloudflare, query service on Google Cloud Run (see docs/DEPLOY_API.md).
 #
-#   docker compose up -d mirror api cloudflared          # serve queries from a local mirror of the R2 files
+#   docker compose up -d mirror api                      # run the query service against a local mirror of the R2 files
 #   docker compose --profile exporter run --rm exporter python -m exporter.export_parquet --full --upload
 #
 # Configuration comes from .env (copy .env.example).
@@ -29,8 +29,8 @@ services:
         done
     restart: unless-stopped
 
-  # Query service (FastAPI + DuckDB) over the mirrored Parquet tree. Not published on any host port:
-  # only reachable through the Cloudflare Tunnel, and only accepts requests carrying GATEWAY_SECRET.
+  # Query service (FastAPI + DuckDB) over the mirrored Parquet tree, for local testing. Not published on any host port
+  # (use `docker compose exec api curl -s localhost:8000/health`), and only accepts requests carrying GATEWAY_SECRET.
   # Set PARQUET_DIR=s3://aqi-data to read R2 directly instead of the mirror (slower for long ranges).
   api:
     build: .
@@ -56,17 +56,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-
-  # Cloudflare Tunnel: exposes http://api:8000 as the Worker's ORIGIN_URL without opening a port.
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: aqi-tunnel
-    command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
-    depends_on:
-      - api
-    restart: unless-stopped
 
   # Optional: export from a Postgres/TimescaleDB source on this host instead of the maintainers' machine.
   exporter:
