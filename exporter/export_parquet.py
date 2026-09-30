@@ -166,7 +166,8 @@ class Source:
 
         # Candidate locations from the repo CSVs, matchable by exact full name or by a normalised short name
         # ("Mahakaleshwar Temple, Ujjain - MPPCB" -> "mahakaleshwartempleujjain").
-        con.execute("CREATE OR REPLACE TEMP TABLE _loc (full_name VARCHAR, norm VARCHAR, state VARCHAR, city VARCHAR, latitude DOUBLE, longitude DOUBLE)")
+        con.execute("CREATE OR REPLACE TEMP TABLE _loc (seq INTEGER, full_name VARCHAR, norm VARCHAR, state VARCHAR, city VARCHAR, latitude DOUBLE, longitude DOUBLE)")
+        seq = 0
         for p in locations_csvs:
             if not p.exists():
                 logger.warning("locations CSV not found: %s", p)
@@ -176,17 +177,26 @@ class Source:
                 for r in csv.DictReader(f):
                     try:
                         name = r["station"].strip()
-                        rows.append((name, _norm(name), (r.get("state") or "").replace("_", " ").strip() or None,
+                        seq += 1
+                        rows.append((seq, name, _norm(name), (r.get("state") or "").replace("_", " ").strip() or None,
                                      (r.get("city") or "").strip() or None, float(r["latitude"]), float(r["longitude"])))
                     except (KeyError, ValueError):
                         continue
-            con.executemany("INSERT INTO _loc VALUES (?, ?, ?, ?, ?, ?)", rows)
+            con.executemany("INSERT INTO _loc VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
             logger.info("loaded %d location rows from %s", len(rows), p.name)
-        con.execute("CREATE OR REPLACE TEMP TABLE _loc1 AS SELECT * FROM _loc QUALIFY row_number() OVER (PARTITION BY norm ORDER BY full_name) = 1")
+        # One row per full name, the first listed CSV winning.
+        con.execute("CREATE OR REPLACE TEMP TABLE _locx AS SELECT * FROM _loc QUALIFY row_number() OVER (PARTITION BY full_name ORDER BY seq) = 1")
 
         con.execute("CREATE OR REPLACE TEMP TABLE _emb (station_id VARCHAR, station_name VARCHAR, city VARCHAR, state VARCHAR, latitude DOUBLE, longitude DOUBLE)")
         con.executemany("INSERT INTO _emb VALUES (?, ?, ?, ?, ?, ?)", [(k, *v) for k, v in EMBASSY_STATIONS.items()])
 
+        # Location precedence: embassy constants, then the CPCB registry row matched by full name
+        # (exactly, or normalised - the key keeps the city, "nehrunagarkanpur"), then the source table.
+        # The source table's coordinates were filled by a prefix join on names, which put 18 stations
+        # on another station's coordinate (Nehru Nagar, Kanpur at Nehru Nagar, Delhi; Railway Colony,
+        # Barmer in Guwahati; ...). The registry row that supplies a station's name also supplies its
+        # coordinate, state and city. Where a normalised key is shared ("Bandra Kurla Complex, Mumbai"
+        # - IITM and - MPCB), the candidate nearest the source coordinate wins.
         con.execute(f"""
             CREATE OR REPLACE TEMP TABLE station_dim AS
             WITH s AS (
@@ -198,19 +208,35 @@ class Source:
                    coalesce(e.station_name,
                             CASE WHEN s.name_derived THEN coalesce(lx.full_name, ln.full_name) END,
                             s.station_name)                                          AS station_name,
-                   coalesce(e.state, s.state_name, lx.state, ln.state)            AS state_name,
-                   coalesce(e.city, s.city_name, lx.city, ln.city)                AS city_name,
-                   coalesce(e.latitude, s.latitude, lx.latitude, ln.latitude)     AS latitude,
-                   coalesce(e.longitude, s.longitude, lx.longitude, ln.longitude) AS longitude,
+                   coalesce(e.state, lx.state, ln.state, s.state_name)            AS state_name,
+                   coalesce(e.city, lx.city, ln.city, s.city_name)                AS city_name,
+                   coalesce(e.latitude, lx.latitude, ln.latitude, s.latitude)     AS latitude,
+                   coalesce(e.longitude, lx.longitude, ln.longitude, s.longitude) AS longitude,
                    CASE WHEN s.station_id LIKE '{EMBASSY_PREFIX}%' THEN 'us_embassy' ELSE 'cpcb_caaqm' END AS source
             FROM s
             LEFT JOIN _emb  e  ON e.station_id = s.station_id
-            LEFT JOIN _loc1 lx ON lx.full_name = s.station_name
-            LEFT JOIN _loc1 ln ON ln.norm = s.norm AND lx.full_name IS NULL
+            LEFT JOIN _locx lx ON lx.full_name = s.station_name
+            LEFT JOIN _locx ln ON ln.norm = s.norm AND lx.full_name IS NULL
+            QUALIFY row_number() OVER (
+                PARTITION BY s.raw_id
+                ORDER BY pow(ln.latitude - s.latitude, 2) + pow(ln.longitude - s.longitude, 2) NULLS LAST, ln.seq) = 1
         """)
+        moved = con.execute("""
+            SELECT * FROM (
+                SELECT d.station_id, d.station_name, r.city_name AS src_city, d.city_name AS reg_city,
+                       2 * 6371 * asin(sqrt(pow(sin(radians(d.latitude - r.latitude) / 2), 2)
+                           + cos(radians(r.latitude)) * cos(radians(d.latitude))
+                           * pow(sin(radians(d.longitude - r.longitude) / 2), 2))) AS km
+                FROM _raw_stations r JOIN station_dim d ON d.raw_id = r.raw_id
+                WHERE r.latitude IS NOT NULL AND d.latitude IS NOT NULL)
+            WHERE km > 1 ORDER BY km DESC""").fetchall()
+        for sid, name, src_city, reg_city, km in moved:
+            logger.warning("%s %s: source table coordinate is %.0f km from the registry's (%s -> %s); using the registry",
+                           sid, name, km, src_city, reg_city)
         n, missing, dup = con.execute(
             "SELECT count(*), count(*) FILTER (WHERE latitude IS NULL), count(*) - count(DISTINCT station_id) FROM station_dim").fetchone()
-        logger.info("station_dim: %d stations, %d without coordinates, %d duplicate public ids", n, missing, dup)
+        logger.info("station_dim: %d stations, %d without coordinates, %d duplicate public ids, %d moved to the registry coordinate",
+                    n, missing, dup, len(moved))
         if dup:
             dups = con.execute("SELECT station_id, list(raw_id) FROM station_dim GROUP BY 1 HAVING count(*) > 1 LIMIT 5").fetchall()
             raise SystemExit(f"Public station ids are not unique: {dups}")
@@ -332,7 +358,11 @@ def export_month(src: Source, out: Path, ym: date) -> MonthResult | None:
 
 
 def build_dimensions(src: Source, out: Path) -> tuple[int, int]:
-    """stations.parquet (station_dim + per-station stats) and parameters.parquet, from the exported files."""
+    """stations.parquet (station_dim + per-station stats) and parameters.parquet, from the exported files.
+
+    Name, state, city and coordinates come from station_dim, so a --dimensions-only run publishes the
+    current registry values; the exported files supply first_seen, last_seen, n_rows and parameters.
+    """
     con = src.con
     files = list(measurements_dir(out).glob("year=*/month=*/data.parquet"))
     if not files:
@@ -365,11 +395,14 @@ def build_dimensions(src: Source, out: Path) -> tuple[int, int]:
                        list_sort(list(parameter_name)) AS parameters
                 FROM per_sp GROUP BY station_id
             ),
-            dim AS (SELECT station_id, any_value(latitude) AS latitude, any_value(longitude) AS longitude FROM station_dim GROUP BY station_id)
-            SELECT s.station_id, s.station_name, s.state_name, s.city_name, s.source,
+            dim AS (SELECT station_id, any_value(station_name) AS station_name, any_value(state_name) AS state_name,
+                           any_value(city_name) AS city_name, any_value(latitude) AS latitude, any_value(longitude) AS longitude
+                    FROM station_dim GROUP BY station_id)
+            SELECT s.station_id, coalesce(d.station_name, s.station_name) AS station_name,
+                   coalesce(d.state_name, s.state_name) AS state_name, coalesce(d.city_name, s.city_name) AS city_name, s.source,
                    d.latitude, d.longitude, s.first_seen, s.last_seen, s.n_rows, s.parameters
             FROM stats s LEFT JOIN dim d USING (station_id)
-            ORDER BY s.source, s.state_name, s.city_name, s.station_name
+            ORDER BY s.source, state_name, city_name, station_name
         ) TO '{stations_tmp.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD)
     """)
     os.replace(stations_tmp, stations_tmp.with_suffix(""))

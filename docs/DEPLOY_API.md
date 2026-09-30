@@ -79,12 +79,20 @@ python -m exporter.export_parquet --source $SRC --out $OUT --full --upload --thr
 python -m exporter.export_parquet --source $SRC --out $OUT --dimensions-only --upload
 ```
 
+Each measurement row also carries `state_name` and `city_name`, copied from the station table at export
+time, so after a change to how stations are located run `--full` to bring the month files into line with
+`stations.parquet`.
+
 What the exporter does to the data:
 
 * Publishes `station_id` as `site_NNNN` (the CPCB site number) for CPCB stations and `DS10100NN` for embassy monitors.
-* Fills `station_name`, `state`, `city`, `latitude`, `longitude` from the `stations` table, then from
-  `stations/station_locations.csv` and `stations/station_locations_11feb2026.csv` by exact and normalised name match.
-  62 decommissioned stations (11 with data after 2025-01) are in neither and have null coordinates.
+* Takes `latitude`, `longitude`, `state` and `city` from CPCB's station registry
+  (`stations/station_locations.csv`, `stations/station_locations_11feb2026.csv`) when the station's name
+  matches a registry row, exactly or after normalisation (which keeps the city: "nehrunagarkanpur");
+  otherwise from the `stations` table. The `stations` table's own coordinates came from a prefix join on names that put
+  18 stations on another station's coordinate (Nehru Nagar, Kanpur at Nehru Nagar, Delhi; Railway Colony,
+  Barmer in Guwahati; Shivaji Nagar, Jhansi and Rishikesh both at Shivaji Nagar, Mumbai). The exporter logs
+  each override. 62 decommissioned stations (11 with data after 2025-01) are in neither and have null coordinates.
 * Renders timestamps `AT TIME ZONE 'UTC'`, which for this database reproduces the source's IST wall-clock values.
 * Replaces spaces in parameter names with `_` (`O_Xylene`) and harmonises unit spellings (`UG/M3` → `µg/m³`).
 * Uploads each month as soon as it is written, so an interrupted full run can simply be re-run.

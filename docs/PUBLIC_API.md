@@ -125,7 +125,7 @@ duckdb -c "SELECT count(*) FROM read_parquet('v1/measurements/*/*/data.parquet',
 | `year`, `month` | int | Hive partition columns (bulk files only). |
 
 `stations.parquet` adds `latitude`, `longitude`, `first_seen`, `last_seen`, `n_rows` and the list of
-`parameters` each station reports. 62 decommissioned CPCB stations are missing from CPCB's current station
+`parameters` each station reports. Coordinates, state and city are CPCB's registry values for the station. 62 decommissioned CPCB stations are missing from CPCB's current station
 list and therefore have null coordinates, state and city; filter them by `station_id` or name instead.
 
 ## Coverage
