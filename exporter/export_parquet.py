@@ -57,6 +57,11 @@ SCHEMA_VERSION = "v1"
 ROW_GROUP_SIZE = 1_000_000
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Authoritative station coordinates from CPCB's own portal, keyed by public id (site_NNNN).
+# Preferred over the name-joined registry. Overridable with PORTAL_COORDINATES_CSV.
+PORTAL_COORDINATES_CSV = Path(os.environ.get(
+    "PORTAL_COORDINATES_CSV", str(REPO_ROOT / "stations" / "station_coordinates_portal_2026-11-23.csv")))
+
 EMBASSY_PREFIX = "DS101"
 EMBASSY_STATIONS = {  # id -> (name, city, state, lat, lon)
     "DS1010001": ("US Embassy - New Delhi", "New Delhi", "Delhi", 28.635760, 77.224450),
@@ -190,7 +195,25 @@ class Source:
         con.execute("CREATE OR REPLACE TEMP TABLE _emb (station_id VARCHAR, station_name VARCHAR, city VARCHAR, state VARCHAR, latitude DOUBLE, longitude DOUBLE)")
         con.executemany("INSERT INTO _emb VALUES (?, ?, ?, ?, ?, ?)", [(k, *v) for k, v in EMBASSY_STATIONS.items()])
 
-        # Location precedence: embassy constants, then the CPCB registry row matched by full name
+        # Portal table: coordinates taken directly from CPCB's own live portal, keyed by the public
+        # station id (site_NNNN). This is the authoritative source and needs no name matching, so it
+        # takes precedence over the name-joined registry below (which could only place a station as
+        # well as its name happened to match). Loaded from PORTAL_COORDINATES_CSV if present.
+        con.execute("CREATE OR REPLACE TEMP TABLE _portal (station_id VARCHAR, station_name VARCHAR, state VARCHAR, city VARCHAR, latitude DOUBLE, longitude DOUBLE)")
+        if PORTAL_COORDINATES_CSV.exists():
+            prows = []
+            with PORTAL_COORDINATES_CSV.open(newline="", encoding="utf-8") as f:
+                for r in csv.DictReader(f):
+                    try:
+                        prows.append((r["station_id"].strip(), (r.get("station_name") or "").strip() or None,
+                                      (r.get("state") or "").strip() or None, (r.get("city") or "").strip() or None,
+                                      float(r["latitude"]), float(r["longitude"])))
+                    except (KeyError, ValueError):
+                        continue
+            con.executemany("INSERT INTO _portal VALUES (?, ?, ?, ?, ?, ?)", prows)
+            logger.info("loaded %d portal coordinate rows from %s", len(prows), PORTAL_COORDINATES_CSV.name)
+
+        # Location precedence: embassy constants, then the portal (by public id), then the CPCB registry row matched by full name
         # (exactly, or normalised - the key keeps the city, "nehrunagarkanpur"), then the source table.
         # The source table's coordinates were filled by a prefix join on names, which put 18 stations
         # on another station's coordinate (Nehru Nagar, Kanpur at Nehru Nagar, Delhi; Railway Colony,
@@ -205,16 +228,17 @@ class Source:
                 FROM _raw_stations r
             )
             SELECT s.raw_id, s.station_id,
-                   coalesce(e.station_name,
+                   coalesce(e.station_name, pp.station_name,
                             CASE WHEN s.name_derived THEN coalesce(lx.full_name, ln.full_name) END,
                             s.station_name)                                          AS station_name,
-                   coalesce(e.state, lx.state, ln.state, s.state_name)            AS state_name,
-                   coalesce(e.city, lx.city, ln.city, s.city_name)                AS city_name,
-                   coalesce(e.latitude, lx.latitude, ln.latitude, s.latitude)     AS latitude,
-                   coalesce(e.longitude, lx.longitude, ln.longitude, s.longitude) AS longitude,
+                   coalesce(e.state, pp.state, lx.state, ln.state, s.state_name)            AS state_name,
+                   coalesce(e.city, pp.city, lx.city, ln.city, s.city_name)                AS city_name,
+                   coalesce(e.latitude, pp.latitude, lx.latitude, ln.latitude, s.latitude)     AS latitude,
+                   coalesce(e.longitude, pp.longitude, lx.longitude, ln.longitude, s.longitude) AS longitude,
                    CASE WHEN s.station_id LIKE '{EMBASSY_PREFIX}%' THEN 'us_embassy' ELSE 'cpcb_caaqm' END AS source
             FROM s
             LEFT JOIN _emb  e  ON e.station_id = s.station_id
+            LEFT JOIN _portal pp ON pp.station_id = s.station_id
             LEFT JOIN _locx lx ON lx.full_name = s.station_name
             LEFT JOIN _locx ln ON ln.norm = s.norm AND lx.full_name IS NULL
             QUALIFY row_number() OVER (
