@@ -539,6 +539,17 @@ def upload_files(out: Path, keys: Iterable[str], bucket: str) -> None:
         logger.info("uploaded s3://%s/%s (%.1f MB, %.1fs)", bucket, key, local.stat().st_size / 1e6, time.time() - t0)
 
 
+def live_month_rows(bucket: str) -> dict[str, int]:
+    """Row count per month key in the published manifest (empty if nothing is published yet)."""
+    try:
+        body = r2_client().get_object(Bucket=bucket, Key=f"{SCHEMA_VERSION}/_manifest.json")["Body"].read()
+    except Exception as e:  # noqa: BLE001 - a missing manifest means a first publish
+        if "NoSuchKey" in repr(e):
+            return {}
+        raise
+    return {m["key"]: int(m["rows"]) for m in json.loads(body)["measurements"]["months"]}
+
+
 def delete_keys(keys: Iterable[str], bucket: str) -> None:
     keys = list(keys)
     if not keys:
@@ -566,20 +577,39 @@ def run_once(args) -> dict:
     if args.upload and not bucket:
         raise SystemExit("--upload needs --bucket or R2_BUCKET")
 
+    # Guard: never publish less than is live. A run from a stale source (e.g. the retired TimescaleDB, which
+    # stops in 2025) would otherwise overwrite or delete newer month files and shrink the release.
+    live = live_month_rows(bucket) if args.upload else {}
+
+    def check_not_shrinking(key: str, rows: int) -> None:
+        if not args.allow_shrink and rows < live.get(key, 0):
+            raise SystemExit(f"Refusing to upload {key}: {rows:,} rows < {live[key]:,} live. "
+                             "Is the source stale? Pass --allow-shrink if this is intended.")
+
     touched: list[str] = []
     removed: list[str] = []
     for ym in months:
         existed = month_path(out, ym).exists()
         res = export_month(src, out, ym)
+        key = rel_key(out, month_path(out, ym))
         if res:
             touched.append(res.key)
             if args.upload:
+                check_not_shrinking(res.key, res.rows)
                 upload_files(out, [res.key], bucket)  # upload as we go so a long full run is resumable
-        elif existed:
-            removed.append(rel_key(out, month_path(out, ym)))
+        else:
+            if args.upload:
+                check_not_shrinking(key, 0)
+            if existed:
+                removed.append(key)
 
     n_st, n_pa = build_dimensions(src, out)
     manifest = write_manifest(src.con, out, n_st, n_pa)
+    if args.upload and not args.allow_shrink:
+        total_live = sum(live.values())
+        if manifest["measurements"]["rows"] < total_live:
+            raise SystemExit(f"Refusing to publish the manifest: {manifest['measurements']['rows']:,} rows "
+                             f"< {total_live:,} live. Pass --allow-shrink if this is intended.")
     dims = [f"{SCHEMA_VERSION}/stations.parquet", f"{SCHEMA_VERSION}/parameters.parquet", f"{SCHEMA_VERSION}/_manifest.json"]
     if args.upload:
         upload_files(out, dims, bucket)
@@ -610,6 +640,8 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--no-upload", dest="upload", action="store_false")
     p.set_defaults(upload=os.environ.get("EXPORT_UPLOAD", "0") == "1")
     p.add_argument("--bucket", default=os.environ.get("R2_BUCKET"))
+    p.add_argument("--allow-shrink", action="store_true",
+                   help="allow uploading a month (or a release) with fewer rows than the published one")
     p.add_argument("--locations-csv", nargs="*", default=[],
         help="CSV(s) with station,state,city,latitude,longitude matched to stations BY NAME to fill missing "
              "coordinates (e.g. stations/station_locations.csv). Off by default: name matching put stations "

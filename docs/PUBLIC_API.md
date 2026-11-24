@@ -139,8 +139,8 @@ verified have null coordinates; filter them by `station_id` or name instead.
 | CPCB CAAQM | 446.6 M (pollutants and weather) | 642 (605 reporting in 2026) | 2009-01 | 2026-11 |
 | US Embassy | 0.50 M | 5 | 2013-01 | 2026-11 (Kolkata to 2025-02, Hyderabad to 2026-04) |
 
-CPCB data is refreshed from CPCB's portal by hand, roughly monthly; the embassy series comes from the US
-State Department's historical files and AirNow.
+CPCB data is refreshed from CPCB's portal by hand, from time to time; `/v1/meta` shows the current extent.
+The embassy series comes from the US State Department's historical files and AirNow.
 
 Station counts grow over time: about 20 stations in 2010, 130 in 2018, 530 in 2024. `/v1/meta` reports the
 current extent; `/v1/stations` gives `first_seen` and `last_seen` per station.
