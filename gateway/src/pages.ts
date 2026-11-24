@@ -112,7 +112,7 @@ function header(env: Env, current: "home" | "signup" | "other"): string {
   const link = (href: string, text: string, cls = "") => `<a href="${href}" class="${cls}">${text}</a>`;
   return `<div class="wrap"><header class="top">
   <a class="brand plain" href="/">${LOGO_MARK}<span class="name">India Air Quality API<small>XKDR Forum</small></span></a>
-  <nav>${link("/#docs", "Docs", "hide-sm")}${link(COLAB_URL, "Notebook", "hide-sm")}${link("/#bulk", "Bulk data", "hide-sm")}${env.CONTACT_EMAIL ? link("mailto:" + escapeHtml(env.CONTACT_EMAIL), "Contact", "hide-sm") : ""}${current === "signup" ? "" : link("/signup", isRequestMode(env) ? "Request a key" : "Get a key", "btn small")}</nav>
+  <nav>${link("/#docs", "Docs", "hide-sm")}${link("/demo", "Demo", "hide-sm")}${link(COLAB_URL, "Notebook", "hide-sm")}${link("/#bulk", "Bulk data", "hide-sm")}${env.CONTACT_EMAIL ? link("mailto:" + escapeHtml(env.CONTACT_EMAIL), "Contact", "hide-sm") : ""}${current === "signup" ? "" : link("/signup", isRequestMode(env) ? "Request a key" : "Get a key", "btn small")}</nav>
 </header></div>`;
 }
 
@@ -120,7 +120,7 @@ function footer(env: Env): string {
   return `<footer><div class="wrap foot">
   <div>${LOGO_FULL}<p>Built and maintained by <a href="https://www.xkdr.org" rel="noopener">XKDR Forum</a>, Mumbai. Data from the Central Pollution Control Board's CAAQM network and the US Department of State via AirNow.</p>
   ${env.CONTACT_EMAIL ? `<p>Questions, corrections, higher limits: <a href="mailto:${escapeHtml(env.CONTACT_EMAIL)}">${escapeHtml(env.CONTACT_EMAIL)}</a></p>` : ""}</div>
-  <nav><a href="/#docs">Docs</a><a href="${COLAB_URL}">Colab notebook</a><a href="${GITHUB_URL}">GitHub</a><a href="/#bulk">Bulk data</a><a href="/#limits">Keys</a><a href="/#data">About the data</a><a href="/#cite">Cite</a><a href="/signup">${isRequestMode(env) ? "Request a key" : "Get a key"}</a></nav>
+  <nav><a href="/#docs">Docs</a><a href="/demo">Demo</a><a href="${COLAB_URL}">Colab notebook</a><a href="${GITHUB_URL}">GitHub</a><a href="/#bulk">Bulk data</a><a href="/#limits">Keys</a><a href="/#data">About the data</a><a href="/#cite">Cite</a><a href="/signup">${isRequestMode(env) ? "Request a key" : "Get a key"}</a></nav>
 </div></footer></body></html>`;
 }
 
@@ -162,7 +162,7 @@ export function landingPage(env: Env, stats: Stats | null): string {
     <p class="eyebrow">XKDR Forum · Open data</p>
     <h1>Hourly air quality for India, since 2009.</h1>
     <p class="lede">Readings from every station in CPCB's continuous monitoring network and the five US Embassy monitors, cleaned into one table. Query a slice through the API, or take the Parquet files whole.</p>
-    <div class="cta"><a class="btn plain" href="/signup">${isRequestMode(env) ? "Request an API key" : "Get an API key"}</a><a class="btn ghost plain" href="#docs">Read the docs</a><a class="btn ghost plain" href="${COLAB_URL}">Open in Colab</a></div>
+    <div class="cta"><a class="btn plain" href="/signup">${isRequestMode(env) ? "Request an API key" : "Get an API key"}</a><a class="btn ghost plain" href="#docs">Read the docs</a><a class="btn ghost plain" href="/demo">See the demo</a><a class="btn ghost plain" href="${COLAB_URL}">Open in Colab</a></div>
     ${env.DEMO_API_KEY ? `<p class="small grey" style="margin-top:22px">Try it right now with the demo key <code>${escapeHtml(demo)}</code>. The API examples on this page use it. It is capped at 10,000 rows per query and can only read the 2024 bulk files; <a href="/signup">a key of your own</a> has no limits.</p>` : ""}
   </div>
   ${statsCard}
@@ -299,8 +299,8 @@ done</code></pre></div>
   <p class="eyebrow">About the data</p>
   <h2>What you should know before you use it</h2>
   <div class="cols-3">
-    <div><h3>Time</h3><p><code>collected_at</code> is a naive timestamp in Indian Standard Time. CPCB readings sit on the hour, embassy readings at half past. Aggregations use IST days and months.</p></div>
-    <div><h3>Values</h3><p>Published as received from the source networks: no gap filling, no outlier removal, no calibration. Units are harmonised in spelling only (µg/m³, mg/m³, ppb).</p></div>
+    <div><h3>Time</h3><p><code>collected_at</code> is a naive timestamp. CPCB readings are Indian Standard Time, on the hour. US embassy readings are UTC, stamped at half past (AirNow's convention): add 5:30 before comparing them with CPCB. Date filters and daily/monthly aggregates apply to the stored timestamps as they are.</p></div>
+    <div><h3>Values</h3><p>Published as received from the source networks: no gap filling, no outlier removal, no calibration. Units are harmonised in spelling only (µg/m³, mg/m³, ppb). Weather series that are one constant value for a whole station-year (CPCB fills missing sensors with 0) are left out.</p></div>
     <div><h3>Stations</h3><p><code>station_id</code> is CPCB's site number (<code>site_103</code>) or the embassy id (<code>DS1010001</code>). A few dozen decommissioned stations are missing from CPCB's current list and carry no coordinates.</p></div>
   </div>
   <p style="margin-top:22px"><b>Licence and attribution.</b> The compilation is released under <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0</a>: use it for anything, including commercial work, and credit <i>India Air Quality Database, XKDR Forum</i> together with the sources, the Central Pollution Control Board's Continuous Ambient Air Quality Monitoring network and the US Department of State via AirNow. If you build a product on it, we would appreciate hearing about it. <a href="#cite">How to cite it</a>.</p>
@@ -472,6 +472,238 @@ export function requestKeyPage(env: Env): string {
   <div class="cols">
     <div><h3>While you wait</h3><p>Read the <a href="/#docs">endpoint reference</a>, try the <a href="/#examples">examples</a>, or browse the <a href="/#bulk">bulk files</a>. Your first call will be <code>GET /v1/meta</code>, which tells you what's published.</p></div>
     <div><h3>Licence</h3><p>The compilation is released under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. Credit the Central Pollution Control Board, the US Department of State, and <i>India Air Quality Database, XKDR Forum</i> in publications. Provided as is, without warranty; not validated for regulatory, legal or health decisions.</p></div>
+  </div>
+</section>
+</main>` + footer(env);
+}
+
+// ---------------------------------------------------------------------------
+// Demo page (/demo): a short, silent "screen recording" of someone handing the
+// prompt to an AI coding assistant. The chart at the end uses real daily means
+// for Delhi, November 2024, as returned by /v1/measurements.
+// ---------------------------------------------------------------------------
+const DEMO_DAILY = "221.9,216.2,220.4,228.7,208.1,201.5,228.9,209.4,180.3,203.4,178.2,193.1,271.3,390.1,300.1,318.4,382.3,565.7,375.5,261.8,214.9,262.5,182.7,144.1,225.9,209.7,175.9,181.4,187.4,183.4";
+
+const DEMO_CSS = `<style>
+.stage{position:relative;width:100%;aspect-ratio:16/9;background:#eae7e3;overflow:hidden;border:2px solid var(--ink);container-type:inline-size;margin-top:26px}
+.stage *{font-variant-ligatures:none}
+.layer{position:absolute;inset:0}
+.slide{display:grid;place-content:center;justify-items:center;gap:2.2cqw;background:#fff;text-align:center;padding:4cqw;opacity:0;transition:opacity .5s ease}
+.slide.on{opacity:1}
+.slide svg{width:7cqw;height:auto}
+.slide .big{font-family:var(--head);font-weight:800;font-size:4.4cqw;line-height:1.1;color:var(--ink)}
+.slide .sub{font-family:var(--head);font-weight:800;font-size:2.2cqw;color:var(--coral)}
+.slide .fine{font-size:1.7cqw;color:var(--grey);font-family:var(--body)}
+.slide .url{font-family:var(--mono);font-size:2cqw;border-bottom:2px solid var(--coral)}
+.win{position:absolute;background:#fff;border:2px solid var(--ink);box-shadow:0 1cqw 3cqw rgba(0,0,0,.14);opacity:0;transform:translateY(2cqw);transition:opacity .35s ease,transform .35s ease}
+.win.on{opacity:1;transform:none}
+.win .bar{display:flex;align-items:center;gap:.8cqw;padding:.9cqw 1.2cqw;background:#f0eeeb;border-bottom:2px solid var(--ink)}
+.win .sq{width:.8cqw;height:.8cqw;background:#cfc9c2}
+.win .sq.a{background:var(--coral)}
+.win .name{font-family:var(--mono);font-size:1.15cqw;color:var(--grey);margin-left:.6cqw}
+.win .body{padding:1.4cqw 1.6cqw;font-family:var(--mono);font-size:1.3cqw;line-height:1.75;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+#dterm{left:3cqw;top:4cqw;width:62cqw;height:48cqw;transition:width .45s ease}
+#dterm.narrow{width:40cqw}
+#dterm .body{height:calc(100% - 3.5cqw);overflow:hidden}
+#denv{right:3cqw;top:10cqw;width:30cqw}
+#dchart{right:3cqw;top:12cqw;width:52cqw}
+#dchart .body{padding:1cqw}
+.ln{display:block}
+.ln .pr{color:var(--coral)}
+.ln.dim{color:var(--grey)}
+.ln.done{font-weight:700}
+.ln.warn{color:#b7442f}
+.dcaret{display:inline-block;width:.6cqw;height:1.5cqw;background:var(--coral);vertical-align:-.25cqw;animation:dblink 1s steps(1) infinite}
+@keyframes dblink{50%{opacity:0}}
+.dbadge{position:absolute;right:3cqw;bottom:3cqw;display:flex;align-items:center;gap:.8cqw;font-family:var(--head);font-weight:800;font-size:1.1cqw;letter-spacing:.18em;text-transform:uppercase;color:var(--grey)}
+.dbadge svg{width:2.4cqw;height:auto}
+.dcap{position:absolute;left:3cqw;bottom:3cqw;max-width:60cqw;font-family:var(--head);font-weight:700;font-size:1.5cqw;background:var(--coral);color:var(--ink);padding:.8cqw 1.2cqw;opacity:0;transition:opacity .3s ease}
+.dcap.on{opacity:1}
+.dbar{height:3px;background:var(--soft);margin-top:10px}
+.dbar i{display:block;height:100%;width:0;background:var(--coral)}
+#dprompt{white-space:pre-wrap;word-break:break-word}
+@media(max-width:700px){.win .body{font-size:1.6cqw}.win .name{font-size:1.4cqw}}
+</style>`;
+
+const DEMO_JS = `<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var vals = "${DEMO_DAILY}".split(",").map(Number);
+  var peak = Math.max.apply(null, vals), pi = vals.indexOf(peak);
+  var above = vals.filter(function (v) { return v > 60; }).length;
+  var term = document.getElementById("dterm-body"), envb = document.getElementById("denv-body");
+  var cap = document.getElementById("dcap"), bar = document.getElementById("dbar");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var run = 0;
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, reduce ? Math.min(ms, 60) : ms); }); }
+  function show(id, on) { document.getElementById(id).classList.toggle("on", on); }
+  function cue(t) { cap.textContent = t || ""; cap.classList.toggle("on", !!t); }
+  function add(cls, html) { var s = document.createElement("span"); s.className = "ln " + (cls || ""); s.innerHTML = html; term.appendChild(s); term.scrollTop = term.scrollHeight; return s; }
+  function type(node, text, cps, token) {
+    var caret = document.createElement("i"); caret.className = "dcaret"; node.appendChild(caret);
+    var i = 0;
+    return new Promise(function (done) {
+      (function step() {
+        if (token !== run) { return done(); }
+        if (i >= text.length) { caret.remove(); return done(); }
+        caret.insertAdjacentText("beforebegin", text.charAt(i++));
+        setTimeout(step, reduce ? 0 : 1000 / cps);
+      })();
+    });
+  }
+  function chart() {
+    var W = 600, H = 360, L = 52, R = 14, T = 28, B = 34, maxY = 600;
+    function x(i) { return L + i * (W - L - R) / (vals.length - 1); }
+    function y(v) { return H - B - (v / maxY) * (H - T - B); }
+    var d = "", i;
+    for (i = 0; i < vals.length; i++) { d += (i ? "L" : "M") + x(i).toFixed(1) + "," + y(vals[i]).toFixed(1); }
+    var area = d + "L" + x(vals.length - 1).toFixed(1) + "," + y(0) + "L" + x(0).toFixed(1) + "," + y(0) + "Z";
+    var ticks = "";
+    [0, 200, 400, 600].forEach(function (v) {
+      ticks += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#e1ddd9" stroke-width="1"/>' +
+        '<text x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end" fill="#6a6a6a" font-size="11" font-family="ui-monospace, monospace">' + v + '</text>';
+    });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="100%" role="img" aria-label="Delhi daily mean PM2.5 for November 2024, every day above the 60 microgram standard">' +
+      '<text x="' + L + '" y="16" fill="#1a1a1a" font-size="13" font-family="Montserrat, sans-serif" font-weight="700">Delhi \\u00b7 daily mean PM2.5 \\u00b7 Nov 2024</text>' + ticks +
+      '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(60) + '" y2="' + y(60) + '" stroke="#1a1a1a" stroke-width="1.2" stroke-dasharray="5 4"/>' +
+      '<text x="' + (W - R) + '" y="' + (y(60) - 6) + '" text-anchor="end" fill="#1a1a1a" font-size="11" font-family="ui-monospace, monospace">standard 60</text>' +
+      '<path d="' + area + '" fill="#f57d6a" fill-opacity="0.16" class="area" style="opacity:0"/>' +
+      '<path d="' + d + '" fill="none" stroke="#f57d6a" stroke-width="2.6" stroke-linejoin="round" class="spark" pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1"/>' +
+      '<circle cx="' + x(pi) + '" cy="' + y(peak) + '" r="4" fill="#f57d6a" class="pk" style="opacity:0"/>' +
+      '<text x="' + x(pi) + '" y="' + (y(peak) - 10) + '" text-anchor="middle" fill="#1a1a1a" font-weight="700" font-size="11" font-family="ui-monospace, monospace" class="pk" style="opacity:0">' + Math.round(peak) + '</text>' +
+      '<text x="' + L + '" y="' + (H - 10) + '" fill="#6a6a6a" font-size="11" font-family="ui-monospace, monospace">1 Nov</text>' +
+      '<text x="' + (W - R) + '" y="' + (H - 10) + '" text-anchor="end" fill="#6a6a6a" font-size="11" font-family="ui-monospace, monospace">30 Nov</text></svg>';
+  }
+  async function play() {
+    var token = ++run;
+    term.innerHTML = ""; envb.innerHTML = ""; document.getElementById("dchart-body").innerHTML = "";
+    ["dterm", "denv", "dchart", "dend"].forEach(function (id) { show(id, false); });
+    document.getElementById("dterm").classList.remove("narrow");
+    show("dstart", true); cue(""); bar.style.width = "0%";
+    var t0 = Date.now(), total = 28000;
+    var tick = setInterval(function () { bar.style.width = Math.min(100, (Date.now() - t0) / total * 100) + "%"; if (token !== run) clearInterval(tick); }, 100);
+
+    await sleep(2600); if (token !== run) return;
+    show("dstart", false); await sleep(400); show("dterm", true); await sleep(500);
+    add("", '<span class="pr">$</span> claude');
+    await sleep(700);
+    var p = add("", '<span class="pr">\\u203a </span>');
+    cue("Paste the prompt");
+    await type(p, "Use the India Air Quality API from XKDR Forum (https://airquality.xkdr.org). Pull daily mean PM2.5 for Delhi for November 2024, save a CSV and plot it against the 60 \\u00b5g/m\\u00b3 daily standard.", 44, token);
+    if (token !== run) return;
+    cue(""); await sleep(1100);
+    add("dim", "\\u23fa Reading airquality.xkdr.org/#docs"); await sleep(700);
+    add("dim", "  GET /v1/meta \\u2192 196,521,834 readings \\u00b7 553 stations \\u00b7 2009-01 to 2026-03"); await sleep(800);
+    add("dim", "\\u23fa Writing delhi_pm25.py"); await sleep(700);
+    add("warn", "  ! No API key. Add it to .env as AQI_API_KEY \\u2014 free at airquality.xkdr.org/signup"); await sleep(500);
+    if (token !== run) return;
+    show("denv", true); cue("The only manual step: paste your key"); await sleep(600);
+    var e = document.createElement("span"); e.className = "ln"; e.innerHTML = '<span class="dim"># India Air Quality API</span><br>'; envb.appendChild(e);
+    await type(e, "AQI_API_KEY=aqi_7Qw3\\u2026", 26, token);
+    if (token !== run) return;
+    await sleep(700); cue(""); show("denv", false); await sleep(400);
+    add("", '<span class="pr">$</span> python delhi_pm25.py'); await sleep(700);
+    add("dim", "  GET /v1/measurements?city=Delhi&amp;parameter=PM2.5&amp;start=2024-11-01&amp;end=2024-11-30&amp;agg=daily"); await sleep(800);
+    add("done", "  \\u2192 1,200 rows \\u00b7 0.3 s"); await sleep(600);
+    add("dim", "  saved delhi_nov2024.csv"); await sleep(500);
+    add("dim", "  saved delhi_nov2024.png"); await sleep(500);
+    if (token !== run) return;
+    document.getElementById("dterm").classList.add("narrow");
+    await sleep(500);
+    document.getElementById("dchart-body").innerHTML = chart();
+    show("dchart", true);
+    var spark = document.querySelector("#dchart-body .spark");
+    if (spark && !reduce) {
+      spark.animate([{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 1600, fill: "forwards", easing: "ease-out" });
+      setTimeout(function () { spark.style.strokeDashoffset = 0; }, 1700);
+    } else if (spark) { spark.style.strokeDashoffset = 0; }
+    document.querySelectorAll("#dchart-body .area, #dchart-body .pk").forEach(function (n) { n.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 900, delay: 900, fill: "forwards" }); });
+    await sleep(2800);
+    add("done", "\\u23fa Done. All " + above + " days of November 2024 sat above the 24-hour standard; peak " + Math.round(peak) + " \\u00b5g/m\\u00b3 on 18 Nov.");
+    cue("Data: CPCB, via the India Air Quality Database");
+    await sleep(3400);
+    if (token !== run) return;
+    cue(""); show("dend", true); clearInterval(tick); bar.style.width = "100%";
+  }
+  document.getElementById("dreplay").addEventListener("click", play);
+  var copy = document.getElementById("dcopy");
+  if (copy) copy.addEventListener("click", function () {
+    var t = document.getElementById("dprompt").textContent;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(function () { copy.textContent = "Copied"; setTimeout(function () { copy.textContent = "Copy prompt"; }, 1600); }, function () {});
+    }
+  });
+  play();
+});
+</script>`;
+
+export function demoPage(env: Env): string {
+  const base = env.PUBLIC_URL;
+  return head("Demo · India Air Quality API", DEMO_CSS + DEMO_JS) + header(env, "other") + `
+<main class="wrap">
+<div class="hero" style="align-items:start;padding-bottom:20px">
+  <div>
+    <p class="eyebrow">Demo</p>
+    <h1 style="font-size:clamp(34px,4.6vw,50px)">From a prompt to a chart.</h1>
+    <p class="lede">Half a minute: hand the prompt below to an AI coding assistant, paste your key into a <code>.env</code> file, and it pulls the data and plots it. The chart is real, straight from this API.</p>
+  </div>
+  <div class="card"><span class="tag">In short</span>
+    <ol class="steps">
+      <li><div><b>Paste the prompt</b> into the assistant.</div></li>
+      <li><div><b>Paste your key</b> into <code>.env</code>. The only manual step.</div></li>
+      <li><div><b>Keep the CSV and the chart.</b></div></li>
+    </ol>
+    <div class="cta" style="margin-top:6px"><a class="btn plain small" href="/signup">Get an API key</a></div>
+  </div>
+</div>
+
+<div class="stage" id="dstage" role="img" aria-label="Screen recording: a prompt is typed into an AI coding assistant, an API key is added to a .env file, and a chart of Delhi's November 2024 PM2.5 appears.">
+  <div class="layer">
+    <div class="win" id="dterm">
+      <div class="bar"><span class="sq a"></span><span class="sq"></span><span class="sq"></span><span class="name">zsh — air-quality</span></div>
+      <div class="body" id="dterm-body"></div>
+    </div>
+    <div class="win" id="denv">
+      <div class="bar"><span class="sq a"></span><span class="sq"></span><span class="sq"></span><span class="name">.env</span></div>
+      <div class="body" id="denv-body"></div>
+    </div>
+    <div class="win" id="dchart">
+      <div class="bar"><span class="sq a"></span><span class="sq"></span><span class="sq"></span><span class="name">delhi_nov2024.png</span></div>
+      <div class="body" id="dchart-body"></div>
+    </div>
+    <div class="dbadge">${LOGO_MARK}<span>XKDR Forum</span></div>
+    <div class="dcap" id="dcap"></div>
+  </div>
+  <div class="layer slide" id="dstart">
+    ${LOGO_MARK}
+    <div class="big">One prompt. Your own analysis.</div>
+    <div class="sub">India Air Quality Database</div>
+    <div class="fine">196 million hourly readings · 553 stations · 2009 onwards</div>
+  </div>
+  <div class="layer slide" id="dend">
+    ${LOGO_MARK}
+    <div class="big">Free API key in a minute.</div>
+    <div class="url">${escapeHtml(base.replace(/^https?:\/\//, ""))}</div>
+    <div class="fine">Hourly PM2.5, PM10, NO2, SO2, ozone and more, from CPCB and US Embassy monitors.</div>
+  </div>
+</div>
+<div class="dbar"><i id="dbar"></i></div>
+<div class="cta" style="margin-top:14px"><button class="btn small" id="dreplay" type="button">Replay</button></div>
+
+<section id="prompt">
+  <p class="eyebrow">Hand this out</p>
+  <h2>The prompt</h2>
+  <div class="cols">
+    <div>
+      <div class="code"><span class="lbl">Prompt</span><pre><code id="dprompt">Use the India Air Quality API from XKDR Forum. Docs: ${escapeHtml(base)}/#docs. My key is in .env as AQI_API_KEY.
+
+Pull the daily mean PM2.5 for Delhi for November 2024, save it as CSV, and plot it against India's 60 µg/m³ daily standard.</code></pre></div>
+      <div class="cta" style="margin-top:10px"><button class="btn ghost small" id="dcopy" type="button">Copy prompt</button></div>
+    </div>
+    <div>
+      <h3>Why it works</h3>
+      <p>The assistant reads <a href="/#docs">the endpoint reference</a>, calls <code>GET /v1/measurements</code> with the filters in the prompt, and gets tidy CSV back. No SDK, no scraping, no cleaning.</p>
+      <p class="small grey">Every number in the demo is real: 1,200 rows for the month, and 30 days that all sat above the 24-hour standard. Swap the city, the pollutant or the dates and the same prompt still works.</p>
+    </div>
   </div>
 </section>
 </main>` + footer(env);

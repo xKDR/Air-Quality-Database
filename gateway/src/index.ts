@@ -3,6 +3,7 @@
  *
  *   GET  /                     documentation (live coverage numbers from the manifest on R2)
  *   GET  /health
+ *   GET  /demo                 short screen-recording demo of the prompt-to-chart flow
  *   GET  /signup, POST /signup, GET /verify      self-serve API keys (SIGNUP_MODE: instant with Turnstile, email link, or request)
  *   *    /admin/*              operator routes (ADMIN_SECRET)
  *   GET  /v1/docs, /v1/openapi.json              interactive docs, no key needed (IP rate-limited)
@@ -14,7 +15,7 @@ import { isRequestMode } from "./env";
 import { handleAdmin } from "./admin";
 import { bearer, clientIp, corsHeaders, html, json, withHeaders } from "./http";
 import { allow, limiterFor, lookupKey, recordUsage, type KeyRow } from "./keys";
-import { adminPage, landingPage, requestKeyPage, type Stats } from "./pages";
+import { adminPage, demoPage, landingPage, requestKeyPage, type Stats } from "./pages";
 import { forwardToOrigin, serveFile } from "./proxy";
 import { getSignup, getVerify, postSignup } from "./signup";
 
@@ -33,6 +34,7 @@ export default {
         return html(200, landingPage(env, await loadStats(env)), { "cache-control": "public, max-age=300" });
       }
       if (path === "/health") return json(200, { ok: true });
+      if (path === "/demo" && req.method === "GET") return html(200, demoPage(env), { "cache-control": "public, max-age=300" });
       if (path === "/signup" || path === "/request") {
         if (isRequestMode(env)) return html(200, requestKeyPage(env), { "cache-control": "public, max-age=300" });
         if (req.method === "GET") return getSignup(env);
