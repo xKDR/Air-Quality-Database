@@ -147,8 +147,13 @@ class Source:
         """station_dim(raw_id, station_id, station_name, state_name, city_name, latitude, longitude, source)."""
         con = self.con
         if self.schema == "timescale":
+            # A source built by make_source_db carries coord_source (where each coordinate came from).
+            has_cs = not self.is_pg and con.execute(
+                "SELECT count(*) FROM information_schema.columns WHERE table_catalog = 'src' "
+                "AND table_name = 'stations' AND column_name = 'coord_source'").fetchone()[0] > 0
+            cs = "s.coord_source" if has_cs else "NULL::VARCHAR AS coord_source"
             raw = self._remote(
-                "SELECT r.station_id AS raw_id, s.station_name, s.state, s.city, s.latitude, s.longitude "
+                f"SELECT r.station_id AS raw_id, s.station_name, s.state, s.city, s.latitude, s.longitude, {cs} "
                 "FROM (SELECT DISTINCT station_id FROM readings) r LEFT JOIN stations s ON s.station_id = r.station_id")
             con.execute(f"""
                 CREATE OR REPLACE TEMP TABLE _raw_stations AS
@@ -157,7 +162,7 @@ class Source:
                        CASE WHEN station_name IS NOT NULL AND station_name <> raw_id THEN station_name
                             ELSE regexp_replace(raw_id, '^site_[0-9]+_', '') END AS station_name,
                        NOT (station_name IS NOT NULL AND station_name <> raw_id) AS name_derived,
-                       state AS state_name, city AS city_name, latitude, longitude
+                       state AS state_name, city AS city_name, latitude, longitude, coord_source
                 FROM {raw}""")
         else:
             raw = self._remote(
@@ -166,7 +171,7 @@ class Source:
             con.execute(f"""
                 CREATE OR REPLACE TEMP TABLE _raw_stations AS
                 SELECT station_id AS raw_id, station_id, station_name, false AS name_derived, state_name, city_name,
-                       NULL::DOUBLE AS latitude, NULL::DOUBLE AS longitude
+                       NULL::DOUBLE AS latitude, NULL::DOUBLE AS longitude, NULL::VARCHAR AS coord_source
                 FROM {raw}""")
 
         # Candidate locations from the repo CSVs, matchable by exact full name or by a normalised short name
@@ -235,6 +240,11 @@ class Source:
                    coalesce(e.city, pp.city, lx.city, ln.city, s.city_name)                AS city_name,
                    coalesce(e.latitude, pp.latitude, lx.latitude, ln.latitude, s.latitude)     AS latitude,
                    coalesce(e.longitude, pp.longitude, lx.longitude, ln.longitude, s.longitude) AS longitude,
+                   CASE WHEN e.latitude IS NOT NULL THEN 'us_embassy'
+                        WHEN pp.latitude IS NOT NULL THEN 'cpcb_portal_2026-11-23'
+                        WHEN coalesce(lx.latitude, ln.latitude) IS NOT NULL THEN 'registry_name_match'
+                        WHEN s.latitude IS NOT NULL THEN coalesce(s.coord_source, 'source_table')
+                   END AS coord_source,
                    CASE WHEN s.station_id LIKE '{EMBASSY_PREFIX}%' THEN 'us_embassy' ELSE 'cpcb_caaqm' END AS source
             FROM s
             LEFT JOIN _emb  e  ON e.station_id = s.station_id
@@ -420,11 +430,12 @@ def build_dimensions(src: Source, out: Path) -> tuple[int, int]:
                 FROM per_sp GROUP BY station_id
             ),
             dim AS (SELECT station_id, any_value(station_name) AS station_name, any_value(state_name) AS state_name,
-                           any_value(city_name) AS city_name, any_value(latitude) AS latitude, any_value(longitude) AS longitude
+                           any_value(city_name) AS city_name, any_value(latitude) AS latitude, any_value(longitude) AS longitude,
+                           any_value(coord_source) AS coord_source
                     FROM station_dim GROUP BY station_id)
             SELECT s.station_id, coalesce(d.station_name, s.station_name) AS station_name,
                    coalesce(d.state_name, s.state_name) AS state_name, coalesce(d.city_name, s.city_name) AS city_name, s.source,
-                   d.latitude, d.longitude, s.first_seen, s.last_seen, s.n_rows, s.parameters
+                   d.latitude, d.longitude, d.coord_source, s.first_seen, s.last_seen, s.n_rows, s.parameters
             FROM stats s LEFT JOIN dim d USING (station_id)
             ORDER BY s.source, state_name, city_name, station_name
         ) TO '{stations_tmp.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD)
@@ -466,7 +477,10 @@ def write_manifest(con: duckdb.DuckDBPyConnection, out: Path, n_stations: int, n
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "timezone_note": "collected_at is a naive timestamp in Indian Standard Time (UTC+05:30).",
+        "timezone_note": ("collected_at is naive. CPCB rows (source='cpcb_caaqm') are Indian Standard Time "
+                          "(UTC+05:30), stamped at the start of the hour. US embassy rows (source='us_embassy') "
+                          "are UTC, stamped hh:30 for the hour starting at hh:00 UTC (AirNow convention); "
+                          "add 5:30 to compare them with CPCB."),
         "columns": {
             "station_id": "VARCHAR", "station_name": "VARCHAR", "state_name": "VARCHAR", "city_name": "VARCHAR",
             "parameter_name": "VARCHAR", "unit": "VARCHAR", "collected_at": "TIMESTAMP",
@@ -596,10 +610,10 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--no-upload", dest="upload", action="store_false")
     p.set_defaults(upload=os.environ.get("EXPORT_UPLOAD", "0") == "1")
     p.add_argument("--bucket", default=os.environ.get("R2_BUCKET"))
-    p.add_argument("--locations-csv", nargs="*", default=[
-        os.environ.get("STATION_LOCATIONS_CSV", str(REPO_ROOT / "stations" / "station_locations.csv")),
-        str(REPO_ROOT / "stations" / "station_locations_11feb2026.csv")],
-        help="CSV(s) with station,state,city,latitude,longitude used to fill missing coordinates")
+    p.add_argument("--locations-csv", nargs="*", default=[],
+        help="CSV(s) with station,state,city,latitude,longitude matched to stations BY NAME to fill missing "
+             "coordinates (e.g. stations/station_locations.csv). Off by default: name matching put stations "
+             "on other stations' coordinates; coordinates should come by station id from the source.")
     p.add_argument("--threads", type=int, default=int(os.environ.get("EXPORT_THREADS", "4")))
     p.add_argument("--memory-limit", default=os.environ.get("EXPORT_MEMORY_LIMIT", "4GB"))
     p.add_argument("--temp-dir", default=os.environ.get("EXPORT_TEMP_DIR"))

@@ -297,5 +297,5 @@ async def measurements(
     cap = limit if caller.max_rows is None else min(limit or caller.max_rows, caller.max_rows)
     meta_ = {"start": start_d.isoformat(), "end": end_d.isoformat(), "agg": agg,
              "filters": {"station": station, "parameter": parameter, "state": state, "city": city, "source": source},
-             "timezone": "IST (UTC+05:30), naive timestamps"}
+             "timezone": "naive timestamps: cpcb_caaqm rows in IST (UTC+05:30); us_embassy rows in UTC, stamped hh:30"}
     return await _respond(request, caller, sql, format, cap=cap, meta=meta_, filename=f"measurements_{start_d}_{end_d}_{agg}")
