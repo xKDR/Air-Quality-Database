@@ -1,7 +1,7 @@
 # India Air Quality API
 
-Hourly pollutant time series from India's CPCB CAAQM monitoring network (553 stations, 2009 onwards)
-and the US Embassy and Consulate monitors (5 stations, July 2019 onwards), served two ways:
+Hourly pollutant and weather time series from India's CPCB CAAQM monitoring network (642 stations, 2009
+onwards) and the US Embassy and Consulate monitors (5 stations, 2013 onwards), served two ways:
 
 * a **query API** for filtered or aggregated slices (JSON, CSV or Parquet), and
 * **bulk Parquet files**, one per month, for people who want everything.
@@ -46,7 +46,7 @@ All endpoints except `/v1/files/<key>` accept `format=json|csv|parquet` (default
 | `parameter` | e.g. `PM2.5`, `PM10`, `NO2`, `SO2`, `Ozone`, `CO`. Repeatable. |
 | `state`, `city` | Case-insensitive exact match. |
 | `source` | `cpcb_caaqm` or `us_embassy`. |
-| `start`, `end` | `YYYY-MM-DD`, inclusive, Indian Standard Time. Default: last 30 days. |
+| `start`, `end` | `YYYY-MM-DD`, inclusive, applied to `collected_at` as stored (IST for CPCB, UTC for embassy rows). Default: last 30 days. |
 | `agg` | `raw` (default), `hourly`, `daily`, `monthly`. Aggregates return `mean`, `min`, `max`, `n` per period. |
 | `limit` | Row cap, at most your tier's maximum. |
 
@@ -117,23 +117,30 @@ duckdb -c "SELECT count(*) FROM read_parquet('v1/measurements/*/*/data.parquet',
 |---|---|---|
 | `station_id` | text | `site_NNNN` (the CPCB site number) for CPCB, `DS10100NN` for US embassy monitors. |
 | `station_name`, `state_name`, `city_name` | text | As published by the source. |
-| `parameter_name` | text | `PM2.5`, `PM10`, `NO`, `NO2`, `NOx`, `NH3`, `SO2`, `CO`, `Ozone`, `Benzene`, `Toluene`, `Xylene`, `O_Xylene`, `MP-Xylene`, `Eth-Benzene`. |
+| `parameter_name` | text | Pollutants: `PM2.5`, `PM10`, `NO`, `NO2`, `NOx`, `NH3`, `SO2`, `CO`, `Ozone`, `Benzene`, `Toluene`, `Xylene`, `O_Xylene`, `MP-Xylene`, `Eth-Benzene`. Weather (CPCB stations that have the sensor): `AT` air temperature, `RH` relative humidity, `WS` wind speed, `WD` wind direction, `VWS` vertical wind speed, `RF` rainfall, `TOT-RF` total rainfall, `SR` solar radiation, `BP` barometric pressure. |
 | `unit` | text | Harmonised: `µg/m³`, `mg/m³`, etc. |
-| `collected_at` | timestamp | Naive, **Indian Standard Time (UTC+05:30)**. CPCB rows are on the hour, embassy rows at half past. |
-| `value` | double | As reported. No gap filling or outlier removal. |
+| `collected_at` | timestamp | Naive. **CPCB rows: Indian Standard Time (UTC+05:30)**, on the hour. **US embassy rows: UTC**, stamped at half past for the hour starting on the hour (AirNow's convention), so `2024-11-01 06:30` is 06:00–07:00 UTC = 11:30–12:30 IST. Add 5:30 to embassy times before comparing them with CPCB. |
+| `value` | double | As reported. No gap filling or outlier removal. Embassy readings the State Department flagged invalid are left out. A weather series that is one constant value for a whole station-year (CPCB fills a missing sensor with 0) is left out. |
 | `source` | text | `cpcb_caaqm` or `us_embassy`. |
 | `year`, `month` | int | Hive partition columns (bulk files only). |
 
 `stations.parquet` adds `latitude`, `longitude`, `first_seen`, `last_seen`, `n_rows` and the list of
-`parameters` each station reports. Coordinates, state and city are CPCB's registry values for the station. 62 decommissioned CPCB stations are missing from CPCB's current station
-list and therefore have null coordinates, state and city; filter them by `station_id` or name instead.
+`parameters` each station reports, and `coord_source`, which says where the coordinate comes from:
+`cpcb_portal_2026-11-23` (CPCB's own station list, matched by station id), `cpcb_repository_2026-11-23`
+(CPCB's data-repository station master), `retained_previous` (a decommissioned station CPCB no longer lists;
+the coordinate is carried over from earlier releases and is unverified) or `us_embassy`. Coordinates are only
+ever matched by station id, never by name. Stations CPCB no longer lists and for which no coordinate could be
+verified have null coordinates; filter them by `station_id` or name instead.
 
 ## Coverage
 
 | | Rows | Stations | From | To |
 |---|---|---|---|---|
-| CPCB CAAQM | 196.3 M | 553 | 2009-01 | 2025-09 (dense through 2024) |
-| US Embassy | 0.25 M | 5 | 2019-07 | 2026-03 |
+| CPCB CAAQM | 446.6 M (pollutants and weather) | 642 (605 reporting in 2026) | 2009-01 | 2026-11 |
+| US Embassy | 0.50 M | 5 | 2013-01 | 2026-11 (Kolkata to 2025-02, Hyderabad to 2026-04) |
+
+CPCB data is refreshed from CPCB's portal by hand, from time to time; `/v1/meta` shows the current extent.
+The embassy series comes from the US State Department's historical files and AirNow.
 
 Station counts grow over time: about 20 stations in 2010, 130 in 2018, 530 in 2024. `/v1/meta` reports the
 current extent; `/v1/stations` gives `first_seen` and `last_seen` per station.

@@ -1,5 +1,38 @@
 # Deploying and operating the public API
 
+## Data pipeline (since 2026-11-24)
+
+There is no database server. The record is files:
+
+* **CPCB:** CPCB's own hourly files, downloaded from the portal (captcha, run from India) by the
+  xKDR/Environment updater and kept unchanged on R2 (`cpcb/raw/<year>/<site_id>.csv.gz`), then built into
+  yearly hourly Parquet (`cpcb/hourly/year=YYYY/data.parquet`, times naive IST). Plus
+  `raw/cpcb_legacy/supplement_legacy_2025.parquet` in `aqi-data`: 25,453 PM2.5/PM10 rows (Apr–Sep 2025, six
+  stations) that exist only from the retired scraper, because CPCB's portal no longer serves them.
+* **US embassy:** hourly CSVs per station (`DS*_hourly.csv`, times naive UTC, `qc` flag), from the State
+  Department's historical files, the 2013–15 embassy reports and AirNow.
+* **Station coordinates:** `stations/station_coordinates_2026-11-23.csv`, keyed by station id only.
+
+Publishing a release:
+
+```bash
+# 1. a DuckDB file of views over those inputs (rules: drop embassy qc=Invalid; drop weather series that are
+#    one constant value for a whole station-year; pollutant values untouched)
+python -m exporter.make_source_db --out /data/source.duckdb \
+  --cpcb-hourly '/data/env/cpcb/hourly/*/*.parquet' --cpcb-manifest /data/env/cpcb/meta/manifest.json \
+  --supplement /data/supplement_legacy_2025.parquet --embassy-csv '/data/embassy/DS*_hourly.csv' \
+  --coords stations/station_coordinates_2026-11-23.csv
+# 2. the v1 files, built locally, checked, then uploaded (months first, manifest last)
+python -m exporter.export_parquet --source duckdb:/data/source.duckdb --out /data/out --full --no-upload
+```
+
+Before uploading, check the new tree against the live one: every live row present with the same value, no
+duplicate (station_id, parameter_name, collected_at), same measurement columns, every live station id present.
+The release of 2026-11-24 passed all four (the only differences: 5 values the sources later revised).
+The previous release is kept at `snapshots/v1-2026-11-24/` in `aqi-data` (not served by the gateway).
+
+The original TimescaleDB pipeline below is retired; the exporter still accepts `postgres://` sources.
+
 ```
 TimescaleDB (maintainers' machine) ──> exporter ──> R2 bucket aqi-data
                                                       │         ▲

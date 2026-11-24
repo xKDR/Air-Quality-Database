@@ -21,7 +21,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
 from . import config
@@ -158,8 +158,14 @@ async def _respond(request: Request, caller: Caller, select_sql: str, fmt: Forma
     truncated = n > cap
     headers.update({"X-Row-Count": str(min(n, cap)), "X-Truncated": str(truncated).lower(),
                     "X-Query-Ms": str(int((time.time() - t0) * 1000))})
-    return FileResponse(path, media_type=media, filename=f"{filename}.{fmt}", headers=headers,
-                        background=BackgroundTask(os.unlink, path))
+    # Stream it (chunked, no Content-Length): Cloud Run rejects non-streamed responses over 32 MiB.
+    def chunks(p=path, size=1 << 20):
+        with open(p, "rb") as f:
+            while block := f.read(size):
+                yield block
+    headers["Content-Disposition"] = f'attachment; filename="{filename}.{fmt}"'
+    return StreamingResponse(chunks(), media_type=media, headers=headers,
+                             background=BackgroundTask(os.unlink, path))
 
 
 def _parse_day(s: str | None, name: str) -> date | None:
@@ -297,5 +303,5 @@ async def measurements(
     cap = limit if caller.max_rows is None else min(limit or caller.max_rows, caller.max_rows)
     meta_ = {"start": start_d.isoformat(), "end": end_d.isoformat(), "agg": agg,
              "filters": {"station": station, "parameter": parameter, "state": state, "city": city, "source": source},
-             "timezone": "IST (UTC+05:30), naive timestamps"}
+             "timezone": "naive timestamps: cpcb_caaqm rows in IST (UTC+05:30); us_embassy rows in UTC, stamped hh:30"}
     return await _respond(request, caller, sql, format, cap=cap, meta=meta_, filename=f"measurements_{start_d}_{end_d}_{agg}")
